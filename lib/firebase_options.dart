@@ -28,6 +28,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '252031920183',
     projectId: 'myauto-493fc',
     storageBucket: 'myauto-493fc.firebasestorage.app',
+    databaseURL: 'https://myauto-493fc-default-rtdb.firebaseio.com',
   );
 
   // Web config — Firebase Console > Project Settings > Web Apps
@@ -38,5 +39,6 @@ class DefaultFirebaseOptions {
     projectId: 'myauto-493fc',
     storageBucket: 'myauto-493fc.firebasestorage.app',
     authDomain: 'myauto-493fc.firebaseapp.com',
+    databaseURL: 'https://myauto-493fc-default-rtdb.firebaseio.com',
   );
 }

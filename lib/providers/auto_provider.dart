@@ -1,20 +1,14 @@
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/auto_model.dart';
+import 'auth_provider.dart'; // uses firestoreProvider from here
+import 'rtdb_provider.dart'; // uses RTDB-based stream providers
 
-final firestoreProvider = Provider<FirebaseFirestore?>((ref) {
-  if (Firebase.apps.isNotEmpty) {
-    return FirebaseFirestore.instance;
-  }
-  return null;
-});
-
-// A robust StreamProvider that hooks into Firestore and listens for any User
-// that is registered as a "driver". Falls back to mock data if Firebase is not initialized.
+/// Legacy Firestore-based driver list stream.
+/// Still used as a fallback or when RTDB is unavailable.
+/// For real-time location, prefer [rtdbAutoListStreamProvider].
 final autoListStreamProvider = StreamProvider<List<AutoModel>>((ref) {
   final firestore = ref.watch(firestoreProvider);
-  
+
   if (firestore == null) {
     // Return mock data for UI testing when Firebase is not configured (e.g., on Web)
     return Stream.value([
@@ -39,19 +33,19 @@ final autoListStreamProvider = StreamProvider<List<AutoModel>>((ref) {
           driverName: data['name'] ?? 'Driver',
           phoneNumber: data['phone'] ?? '',
           vehicleNumber: data['autoRegistrationNumber'] ?? '',
-          rating: 5.0, // Default for now
+          rating: 5.0,
         );
       }).toList();
   });
 });
 
-// A StreamProvider that listens to passengers actively requesting a ride.
-// Used by Drivers to see where passengers are.
+/// Legacy Firestore-based active passenger list.
+/// For real-time RTDB-based passenger requests, prefer [rtdbPassengerListStreamProvider].
 final activePassengerListStreamProvider = StreamProvider<List<AutoModel>>((ref) {
   final firestore = ref.watch(firestoreProvider);
-  
+
   if (firestore == null) {
-    return Stream.value([]); // No mock passengers yet
+    return Stream.value([]);
   }
 
   return firestore
@@ -66,10 +60,10 @@ final activePassengerListStreamProvider = StreamProvider<List<AutoModel>>((ref) 
           id: doc.id,
           latitude: data['latitude']?.toDouble() ?? 0.0,
           longitude: data['longitude']?.toDouble() ?? 0.0,
-          isAvailable: true, // They are actively requesting
+          isAvailable: true,
           driverName: data['name'] ?? 'Passenger',
           phoneNumber: data['phone'] ?? '',
-          vehicleNumber: 'N/A', // Passengers don't have vehicles
+          vehicleNumber: 'N/A',
           rating: 5.0,
         );
       }).toList();

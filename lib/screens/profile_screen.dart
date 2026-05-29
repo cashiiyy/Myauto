@@ -101,13 +101,17 @@ class ProfileScreen extends ConsumerWidget {
                     color: Colors.transparent,
                     child: InkWell(
                       borderRadius: BorderRadius.circular(27),
-                      onTap: () {
+                      onTap: () async {
                         // Sign out and clear stack
-                        Navigator.pushAndRemoveUntil(
-                          context, 
-                          MaterialPageRoute(builder: (_) => const GetStartedScreen()), 
-                          (route) => false,
-                        );
+                        await ref.read(authControllerProvider.notifier).signOut();
+                        ref.read(localSessionProvider.notifier).state = null;
+                        if (context.mounted) {
+                          Navigator.pushAndRemoveUntil(
+                            context, 
+                            MaterialPageRoute(builder: (_) => const GetStartedScreen()), 
+                            (route) => false,
+                          );
+                        }
                       },
                       child: Center(
                         child: Text(

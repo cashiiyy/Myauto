@@ -6,6 +6,7 @@ import '../providers/auth_provider.dart';
 import 'permission_gate_screen.dart';
 import 'registration_passenger.dart';
 import 'registration_driver.dart';
+import 'driver_details_intro_screen.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -19,7 +20,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final TextEditingController _passCtrl = TextEditingController();
 
   void _login() async {
-    await ref.read(authControllerProvider.notifier).loginWithEmail(
+    final notifier = ref.read(authControllerProvider.notifier);
+    await notifier.loginWithEmail(
       _emailCtrl.text.trim(), 
       _passCtrl.text.trim(),
     );
@@ -28,16 +30,36 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     if (error != null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
     } else {
-      // Save a local session so the profile screen shows the user
-      ref.read(localSessionProvider.notifier).state = UserModel(
-        uid: 'email_user',
+      final fbUser = ref.read(firebaseAuthProvider)?.currentUser;
+      UserModel? user;
+      if (fbUser != null) {
+        user = await notifier.getUserDocument(fbUser.uid);
+      }
+      
+      // Fallback if user document doesn't exist or we are in mock mode
+      user ??= UserModel(
+        uid: fbUser?.uid ?? 'email_user',
         email: _emailCtrl.text.trim(),
         role: 'passenger',
-        name: _emailCtrl.text.split('@').first,
+        name: fbUser?.displayName ?? _emailCtrl.text.split('@').first,
         phone: '',
         createdAt: DateTime.now(),
       );
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const PermissionGateScreen()));
+
+      // Save local session
+      ref.read(localSessionProvider.notifier).state = user;
+      
+      if (!mounted) return;
+      
+      // Route based on role and registration completion if driver
+      if (user.role == 'driver' && (user.autoRegistrationNumber == null || user.autoRegistrationNumber!.isEmpty)) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => DriverDetailsIntroScreen(user: user!)),
+        );
+      } else {
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const PermissionGateScreen()));
+      }
     }
   }
 

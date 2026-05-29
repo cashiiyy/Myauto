@@ -4,8 +4,11 @@ import 'get_started_screen.dart';
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../providers/auth_provider.dart';
+import '../models/user_model.dart';
 import 'permission_gate_screen.dart';
+import 'driver_details_intro_screen.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
@@ -62,19 +65,54 @@ class _SplashScreenState extends ConsumerState<SplashScreen> with TickerProvider
 
     // 4. Dissolve completely into the appropriate screen
     if (mounted) {
-      final authUser = ref.read(authStateProvider).value;
-      
-      Navigator.pushReplacement(
-        context,
-        PageRouteBuilder(
-          pageBuilder: (context, animation, secondaryAnimation) => 
-              authUser != null ? const PermissionGateScreen() : const GetStartedScreen(),
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            return FadeTransition(opacity: animation, child: child);
-          },
-          transitionDuration: const Duration(milliseconds: 1000), // smooth dissolve
-        )
-      );
+      User? authUser;
+      try {
+        authUser = await ref.read(authStateProvider.future).timeout(
+          const Duration(seconds: 2),
+          onTimeout: () => ref.read(authStateProvider).value,
+        );
+      } catch (e) {
+        debugPrint('Error getting auth state: $e');
+        authUser = ref.read(authStateProvider).value;
+      }
+
+      UserModel? userProfile;
+      if (authUser != null) {
+        try {
+          // Pre-warm and fetch user profile details
+          userProfile = await ref.read(currentUserProvider.future).timeout(
+            const Duration(seconds: 2),
+            onTimeout: () => ref.read(currentUserProvider).value,
+          );
+        } catch (e) {
+          debugPrint('Error getting user profile: $e');
+          userProfile = ref.read(currentUserProvider).value;
+        }
+      }
+
+      if (mounted) {
+        Widget targetScreen;
+        if (authUser == null) {
+          targetScreen = const GetStartedScreen();
+        } else if (userProfile != null && 
+                   userProfile.role == 'driver' && 
+                   (userProfile.autoRegistrationNumber == null || userProfile.autoRegistrationNumber!.isEmpty)) {
+          targetScreen = DriverDetailsIntroScreen(user: userProfile);
+        } else {
+          targetScreen = const PermissionGateScreen();
+        }
+
+        Navigator.pushReplacement(
+          context,
+          PageRouteBuilder(
+            pageBuilder: (context, animation, secondaryAnimation) => targetScreen,
+            transitionsBuilder: (context, animation, secondaryAnimation, child) {
+              return FadeTransition(opacity: animation, child: child);
+            },
+            transitionDuration: const Duration(milliseconds: 1000), // smooth dissolve
+          )
+        );
+      }
     }
   }
 
@@ -87,6 +125,10 @@ class _SplashScreenState extends ConsumerState<SplashScreen> with TickerProvider
 
   @override
   Widget build(BuildContext context) {
+    // Watch these providers to start loading them as early as possible (pre-warm)
+    ref.watch(authStateProvider);
+    ref.watch(currentUserProvider);
+
     return Scaffold(
       backgroundColor: Colors.black, // Pure black as requested
       body: Center(

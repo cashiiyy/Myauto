@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../providers/auth_provider.dart';
 import '../models/user_model.dart';
-import 'home_screen.dart';
+import 'permission_gate_screen.dart';
 
 class DriverDetailsIntroScreen extends ConsumerStatefulWidget {
   final UserModel user;
@@ -51,7 +51,7 @@ class _DriverDetailsIntroScreenState extends ConsumerState<DriverDetailsIntroScr
     if (!mounted) return;
     Navigator.pushAndRemoveUntil(
       context,
-      MaterialPageRoute(builder: (_) => const HomeScreen()),
+      MaterialPageRoute(builder: (_) => const PermissionGateScreen()),
       (route) => false,
     );
   }

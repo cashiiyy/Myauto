@@ -5,16 +5,20 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../providers/location_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/rtdb_provider.dart';
 import '../providers/ride_action_provider.dart';
+import '../providers/user_provider.dart';
 import '../models/auto_model.dart';
+import '../models/driver_location_model.dart';
+import '../models/ride_request_model.dart';
+import '../services/driver_location_service.dart';
 import '../widgets/auto_details_sheet.dart';
 import 'activity_screen.dart';
 import 'profile_screen.dart';
-import '../providers/user_provider.dart';
-import 'package:google_fonts/google_fonts.dart';
+import '../models/user_model.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -29,39 +33,56 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   AutoModel? _selectedAuto;
   double _distanceToAuto = 0.0;
 
-  // ── Driver service lifecycle ───────────────────────────────────────────────
+  // Driver service is managed here — no Riverpod autoDispose race
+  DriverLocationService? _driverService;
 
   @override
-  void initState() {
-    super.initState();
-    // Defer so we can safely call ref after the first frame.
-    WidgetsBinding.instance.addPostFrameCallback((_) => _startDriverService());
+  void dispose() {
+    _driverService?.dispose();
+    super.dispose();
   }
 
-  /// If the logged-in user is a driver, kick off the GPS push loop.
-  void _startDriverService() {
-    final user = ref.read(currentUserProvider).value;
-    if (user?.role == 'driver') {
-      try {
-        ref
-            .read(driverLocationServiceProvider.notifier)
-            .start()
-            .catchError((e) => debugPrint('[HomeScreen] Driver service error: $e'));
-      } catch (_) {
-        // Provider throws if RTDB is unavailable — silently degrade.
+  // ── Driver service management ──────────────────────────────────────────────
+
+  void _manageDriverService(UserModel? user) {
+    final rtdb = ref.read(rtdbServiceProvider);
+    
+    if (user != null && user.role == 'driver' && rtdb != null) {
+      if (_driverService == null) {
+        _driverService = DriverLocationService(rtdb, user);
+        _driverService!.start();
+      }
+    } else {
+      if (_driverService != null) {
+        _driverService!.stop();
+        _driverService!.dispose();
+        _driverService = null;
       }
     }
   }
 
-  @override
-  void dispose() {
-    // The autoDispose provider handles timer teardown automatically.
-    super.dispose();
+  // ── Helpers ────────────────────────────────────────────────────────────────
+
+  /// Convert any RTDB model → AutoModel for the details sheet.
+  void _selectFromDriver(DriverLocationModel d, dynamic position) {
+    final auto = AutoModel(
+      id: d.uid, latitude: d.latitude, longitude: d.longitude,
+      isAvailable: d.isAvailable, driverName: d.name,
+      phoneNumber: d.phone, vehicleNumber: d.vehicleNumber, rating: d.rating,
+    );
+    _selectAuto(auto, position);
   }
 
-  // ── UI helpers ─────────────────────────────────────────────────────────────
+  void _selectFromRequest(RideRequestModel r, dynamic position) {
+    final auto = AutoModel(
+      id: r.uid, latitude: r.latitude, longitude: r.longitude,
+      isAvailable: true, driverName: r.name,
+      phoneNumber: r.phone, vehicleNumber: 'N/A', rating: 5.0,
+    );
+    _selectAuto(auto, position);
+  }
 
-  void _selectAuto(AutoModel auto, Position? currentPos) {
+  void _selectAuto(AutoModel auto, dynamic currentPos) {
     if (currentPos != null) {
       _distanceToAuto = Geolocator.distanceBetween(
         currentPos.latitude, currentPos.longitude,
@@ -73,42 +94,38 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   void _callSos() async {
     final sosNumber = ref.read(sosContactProvider);
-    final Uri url = Uri(scheme: 'tel', path: sosNumber);
-    if (await canLaunchUrl(url)) {
-      await launchUrl(url);
-    }
+    final url = Uri(scheme: 'tel', path: sosNumber);
+    if (await canLaunchUrl(url)) launchUrl(url);
   }
 
   void _reloadMap() {
     final pos = ref.read(currentLocationProvider).value;
     if (pos != null) {
-      _mapController.move(
-          LatLng(pos.latitude, pos.longitude), _mapController.camera.zoom);
+      _mapController.move(LatLng(pos.latitude, pos.longitude), _mapController.camera.zoom);
     }
   }
 
-  // ── Main build ─────────────────────────────────────────────────────────────
+  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
+    // Sync driver service with current user state (idempotent)
+    final user = ref.watch(currentUserProvider).value;
+    _manageDriverService(user);
+
     return Scaffold(
       extendBodyBehindAppBar: true,
       body: Stack(
         children: [
           IndexedStack(
             index: _currentIndex,
-            children: [
-              _buildMapTab(),
-              const ActivityScreen(),
-              const ProfileScreen(),
-            ],
+            children: [_buildMapTab(), const ActivityScreen(), const ProfileScreen()],
           ),
           AnimatedPositioned(
             duration: const Duration(milliseconds: 300),
             curve: Curves.easeOutCubic,
             bottom: _selectedAuto == null ? 30 : -100,
-            left: 20,
-            right: 20,
+            left: 20, right: 20,
             child: _buildCustomBottomBar(),
           ),
         ],
@@ -120,212 +137,225 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Widget _buildMapTab() {
     final locationAsync = ref.watch(currentLocationProvider);
-    final userAsync = ref.watch(currentUserProvider);
-
-    final role = userAsync.value?.role ?? 'passenger';
-
-    // ── Choose the right RTDB stream based on role ──────────────────
-    // Passengers → see nearby active drivers from RTDB.
-    // Drivers    → see nearby ride requests from RTDB.
-    final mapMarkersAsync = role == 'passenger'
-        ? ref.watch(rtdbAutoListStreamProvider)
-        : ref.watch(rtdbPassengerListStreamProvider);
-
-    // Ride-share co-passengers (shown for everyone)
-    final rideSharesAsync = ref.watch(nearbyRideSharesStreamProvider);
-
+    final role = ref.watch(currentUserProvider).value?.role ?? 'passenger';
     final rideAction = ref.watch(rideActionControllerProvider);
+
+    // ── Raw RTDB streams — re-emit every time RTDB changes ────────────────
+    final driversAsync = ref.watch(nearbyDriversStreamProvider);
+    final requestsAsync = ref.watch(nearbyRideRequestsStreamProvider);
+    final sharesAsync = ref.watch(nearbyRideSharesStreamProvider);
 
     return Stack(
       children: [
         locationAsync.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (e, _) => Center(child: Text('Location error: $e')),
           data: (position) {
             if (position == null) {
-              return const Center(child: Text('Location Denied.'));
+              return const Center(child: Text('Location unavailable. Check permissions.'));
             }
-            final userLocation = LatLng(position.latitude, position.longitude);
+            final userLoc = LatLng(position.latitude, position.longitude);
 
             return GestureDetector(
-              onTap: () {
-                if (_selectedAuto != null) {
-                  setState(() => _selectedAuto = null);
-                }
-              },
+              onTap: () { if (_selectedAuto != null) setState(() => _selectedAuto = null); },
               child: FlutterMap(
                 mapController: _mapController,
                 options: MapOptions(
-                  initialCenter: userLocation,
+                  initialCenter: userLoc,
                   initialZoom: 15.0,
-                  onTap: (tapPosition, point) {
-                    setState(() => _selectedAuto = null);
-                  },
+                  onTap: (_, __) => setState(() => _selectedAuto = null),
                 ),
                 children: [
                   TileLayer(
-                    urlTemplate:
-                        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                    userAgentPackageName: 'com.example.my_auto',
+                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    userAgentPackageName: 'com.myauto.com',
                   ),
-                  MarkerLayer(
-                    markers: [
-                      // ── User's own position ────────────────────────────
-                      Marker(
-                        point: userLocation,
-                        width: 40,
-                        height: 40,
-                        child: const Icon(Icons.my_location,
-                            color: Colors.blue, size: 30),
-                      ),
+                  MarkerLayer(markers: [
+                    // ── Own position ────────────────────────────────────
+                    Marker(
+                      point: userLoc, width: 40, height: 40,
+                      child: const Icon(Icons.my_location, color: Colors.blue, size: 30),
+                    ),
 
-                      // ── Nearby drivers (passenger view) or
-                      //    ride requests (driver view) from RTDB ──────────
-                      ...mapMarkersAsync.when(
-                        data: (targetList) => targetList.map((target) {
-                          final isSelected = _selectedAuto?.id == target.id;
-                          return Marker(
-                            point: LatLng(target.latitude, target.longitude),
-                            width: isSelected ? 60 : 50,
-                            height: isSelected ? 60 : 50,
-                            child: GestureDetector(
-                              onTap: () => _selectAuto(target, position),
-                              child: Stack(
-                                alignment: Alignment.center,
-                                children: [
+                    // ── Passenger sees nearby DRIVERS (🛺) ──────────────
+                    if (role == 'passenger')
+                      ...driversAsync.when(
+                        loading: () {
+                          debugPrint('🟡 [STAGE-D] driversAsync => LOADING');
+                          return <Marker>[];
+                        },
+                        error: (e, st) {
+                          debugPrint('🔴 [STAGE-D] driversAsync => ERROR: $e');
+                          debugPrint('🔴 [STAGE-D] Stack: $st');
+                          return <Marker>[];
+                        },
+                        data: (drivers) {
+                          debugPrint('🟢 [STAGE-D] driversAsync => ${drivers.length} drivers received');
+                          for (final d in drivers) {
+                            debugPrint('🟢 [STAGE-D]   🛺 ${d.uid} @ (${d.latitude}, ${d.longitude}) avail=${d.isAvailable}');
+                          }
+                          return drivers.map((d) {
+                            final isSelected = _selectedAuto?.id == d.uid;
+                            return Marker(
+                              point: LatLng(d.latitude, d.longitude),
+                              width: isSelected ? 60 : 50,
+                              height: isSelected ? 60 : 50,
+                              child: GestureDetector(
+                                onTap: () => _selectFromDriver(d, position),
+                                child: Stack(alignment: Alignment.center, children: [
                                   Container(
                                     decoration: BoxDecoration(
-                                      color: target.isAvailable
+                                      color: d.isAvailable
                                           ? Colors.green.withValues(alpha: 0.5)
                                           : Colors.red.withValues(alpha: 0.4),
                                       shape: BoxShape.circle,
-                                      border: isSelected
-                                          ? Border.all(
-                                              color: Colors.black, width: 2)
-                                          : null,
+                                      border: isSelected ? Border.all(color: Colors.black, width: 2) : null,
                                     ),
                                     width: isSelected ? 50 : 40,
                                     height: isSelected ? 50 : 40,
                                   ),
-                                  Text(
-                                    role == 'passenger' ? '🛺' : '🧍',
-                                    style: TextStyle(
-                                        fontSize: isSelected ? 30 : 24),
-                                  ),
-                                ],
+                                  Text('🛺', style: TextStyle(fontSize: isSelected ? 30 : 24)),
+                                ]),
                               ),
-                            ),
-                          );
-                        }).toList(),
-                        loading: () => [],
-                        error: (_, __) => [],
+                            );
+                          }).toList();
+                        },
                       ),
 
-                      // ── Ride-share co-passengers (green 🤝 markers) ──────
-                      ...rideSharesAsync.when(
-                        data: (shares) => shares.map((share) => Marker(
-                              point: LatLng(share.latitude, share.longitude),
-                              width: 48,
-                              height: 48,
-                              child: Tooltip(
-                                message: '${share.name} — share available',
-                                child: Stack(
-                                  alignment: Alignment.center,
-                                  children: [
-                                    Container(
-                                      decoration: BoxDecoration(
-                                        color: Colors.teal.withValues(alpha: 0.5),
-                                        shape: BoxShape.circle,
-                                      ),
-                                      width: 40,
-                                      height: 40,
+                    // ── Driver sees nearby PASSENGERS requesting ride (🧍) ──
+                    if (role == 'driver')
+                      ...requestsAsync.when(
+                        loading: () {
+                          debugPrint('🟡 [STAGE-D-REQ] requestsAsync => LOADING');
+                          return <Marker>[];
+                        },
+                        error: (e, st) {
+                          debugPrint('🔴 [STAGE-D-REQ] requestsAsync => ERROR: $e');
+                          return <Marker>[];
+                        },
+                        data: (requests) {
+                          debugPrint('🟢 [STAGE-D-REQ] requestsAsync => ${requests.length} requests received');
+                          for (final r in requests) {
+                            debugPrint('🟢 [STAGE-D-REQ]   🧍 ${r.uid} @ (${r.latitude}, ${r.longitude}) status=${r.status}');
+                          }
+                          return requests.map((r) {
+                            final isSelected = _selectedAuto?.id == r.uid;
+                            return Marker(
+                              point: LatLng(r.latitude, r.longitude),
+                              width: isSelected ? 60 : 50,
+                              height: isSelected ? 60 : 50,
+                              child: GestureDetector(
+                                onTap: () => _selectFromRequest(r, position),
+                                child: Stack(alignment: Alignment.center, children: [
+                                  Container(
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue.withValues(alpha: 0.4),
+                                      shape: BoxShape.circle,
+                                      border: isSelected ? Border.all(color: Colors.black, width: 2) : null,
                                     ),
-                                    const Text('🤝',
-                                        style: TextStyle(fontSize: 22)),
-                                  ],
-                                ),
+                                    width: isSelected ? 50 : 40,
+                                    height: isSelected ? 50 : 40,
+                                  ),
+                                  Text('🧍', style: TextStyle(fontSize: isSelected ? 30 : 24)),
+                                ]),
                               ),
-                            )).toList(),
-                        loading: () => [],
-                        error: (_, __) => [],
+                            );
+                          }).toList();
+                        },
                       ),
-                    ],
-                  ),
+
+                    // ── Co-passengers sharing ride (🤝) — visible to all ──
+                    ...sharesAsync.when(
+                      loading: () {
+                        debugPrint('🟡 [STAGE-D-SHARE] sharesAsync => LOADING');
+                        return <Marker>[];
+                      },
+                      error: (e, _) {
+                        debugPrint('🔴 [STAGE-D-SHARE] sharesAsync => ERROR: $e');
+                        return <Marker>[];
+                      },
+                      data: (shares) {
+                        debugPrint('🟢 [STAGE-D-SHARE] sharesAsync => ${shares.length} shares received');
+                        return shares.map((s) => Marker(
+                          point: LatLng(s.latitude, s.longitude),
+                          width: 48, height: 48,
+                          child: Tooltip(
+                            message: '${s.name} — share ride',
+                            child: Stack(alignment: Alignment.center, children: [
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.teal.withValues(alpha: 0.5),
+                                  shape: BoxShape.circle,
+                                ),
+                                width: 40, height: 40,
+                              ),
+                              const Text('🤝', style: TextStyle(fontSize: 22)),
+                            ]),
+                          ),
+                        )).toList();
+                      },
+                    ),
+                  ]),
                 ],
               ),
             );
           },
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (err, stack) => Center(child: Text('Error: $err')),
         ),
 
-        // ── FABs and overlays ──────────────────────────────────────────────
+        // ── FABs ────────────────────────────────────────────────────────────
         if (_currentIndex == 0) ...[
           Positioned(
-            top: MediaQuery.of(context).padding.top + 20,
-            right: 20,
+            top: MediaQuery.of(context).padding.top + 20, right: 20,
             child: FloatingActionButton(
               heroTag: 'refresh',
               backgroundColor: const Color(0xFFFFDDBA).withValues(alpha: 0.9),
-              elevation: 4,
-              mini: true,
+              elevation: 4, mini: true,
               onPressed: _reloadMap,
               child: const Icon(Icons.refresh, color: Colors.black87),
             ),
           ),
-
           Positioned(
-            top: MediaQuery.of(context).padding.top + 70,
-            right: 20,
+            top: MediaQuery.of(context).padding.top + 70, right: 20,
             child: FloatingActionButton(
               heroTag: 'locate',
               backgroundColor: const Color(0xFFD0E4FF).withValues(alpha: 0.9),
-              elevation: 4,
-              mini: true,
+              elevation: 4, mini: true,
               onPressed: () {
                 final pos = ref.read(currentLocationProvider).value;
-                if (pos != null) {
-                  _mapController.move(
-                      LatLng(pos.latitude, pos.longitude), 15.0);
-                }
+                if (pos != null) _mapController.move(LatLng(pos.latitude, pos.longitude), 15.0);
               },
               child: const Icon(Icons.my_location, color: Colors.black87),
             ),
           ),
-
-          // ── SOS button ──────────────────────────────────────────────────
           Positioned(
-            bottom: _selectedAuto == null ? 120 : 350,
-            left: 20,
+            bottom: _selectedAuto == null ? 120 : 350, left: 20,
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 300),
               curve: Curves.easeOutCubic,
               child: FloatingActionButton(
                 heroTag: 'sos',
                 backgroundColor: const Color(0xFFFF4B4B),
-                elevation: 4,
-                shape: const CircleBorder(),
+                elevation: 4, shape: const CircleBorder(),
                 onPressed: _callSos,
                 child: const Icon(Icons.call, color: Colors.white, size: 28),
               ),
             ),
           ),
 
-          // ── Passenger action bar (Book Ride + Share Ride) ────────────────
-          if ((ref.watch(currentUserProvider).value?.role ?? 'passenger') ==
-              'passenger')
-            Positioned(
-              bottom: _selectedAuto == null ? 120 : 360,
-              right: 20,
-              child: _buildPassengerActionBar(rideAction),
-            ),
+          // ── Book Ride + Share Ride buttons (passengers only) ─────────────
+          if (role == 'passenger' || true) // show for all, guard inside
+            if ((ref.watch(currentUserProvider).value?.role ?? 'passenger') == 'passenger')
+              Positioned(
+                bottom: _selectedAuto == null ? 120 : 360, right: 20,
+                child: _buildPassengerActionBar(rideAction),
+              ),
 
-          // ── Sliding Auto Details Sheet ───────────────────────────────────
+          // ── Details sheet ────────────────────────────────────────────────
           AnimatedPositioned(
             duration: const Duration(milliseconds: 300),
             curve: Curves.easeOutCubic,
             bottom: _selectedAuto == null ? -400 : 0,
-            left: 0,
-            right: 0,
-            height: 350,
+            left: 0, right: 0, height: 350,
             child: _selectedAuto != null
                 ? AutoDetailsSheet(
                     auto: _selectedAuto!,
@@ -339,88 +369,49 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  // ── Passenger Action Bar ───────────────────────────────────────────────────
+  // ── Passenger action bar ───────────────────────────────────────────────────
 
-  /// Column of two small FABs:
-  /// - Book Ride (🛺) / Cancel (✕)
-  /// - Share Ride (🤝) toggle
   Widget _buildPassengerActionBar(RideActionState rideAction) {
     final isLoading = rideAction.status == RideActionStatus.loading;
-
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        // ── Ride-Share toggle ────────────────────────────────────────
         FloatingActionButton.small(
           heroTag: 'share_ride',
-          tooltip: rideAction.isSharing
-              ? 'Disable Ride-Share'
-              : 'Enable Ride-Share',
+          tooltip: rideAction.isSharing ? 'Disable Share' : 'Enable Share',
           backgroundColor: rideAction.isSharing
               ? Colors.teal
               : Colors.white.withValues(alpha: 0.9),
-          onPressed: isLoading
-              ? null
-              : () async {
-                  final ctrl =
-                      ref.read(rideActionControllerProvider.notifier);
-                  if (rideAction.isSharing) {
-                    await ctrl.disableRideShare();
-                  } else {
-                    // Pass null destination — user can expand this later
-                    await ctrl.enableRideShare();
-                  }
-                },
-          child: Text(
-            '🤝',
-            style: TextStyle(fontSize: rideAction.isSharing ? 18 : 16),
-          ),
+          onPressed: isLoading ? null : () async {
+            final ctrl = ref.read(rideActionControllerProvider.notifier);
+            rideAction.isSharing ? await ctrl.disableRideShare() : await ctrl.enableRideShare();
+          },
+          child: Text('🤝', style: TextStyle(fontSize: rideAction.isSharing ? 18 : 16)),
         ),
         const SizedBox(height: 8),
-
-        // ── Book / Cancel Ride ────────────────────────────────────────
         FloatingActionButton.extended(
           heroTag: 'book_ride',
-          backgroundColor: rideAction.isRequesting
-              ? Colors.red.shade400
-              : const Color(0xFF007AFF),
+          backgroundColor: rideAction.isRequesting ? Colors.red.shade400 : const Color(0xFF007AFF),
           elevation: 4,
-          onPressed: isLoading
-              ? null
-              : () async {
-                  final ctrl =
-                      ref.read(rideActionControllerProvider.notifier);
-                  if (rideAction.isRequesting) {
-                    await ctrl.cancelRide();
-                  } else {
-                    await ctrl.bookRide();
-                  }
-                },
+          onPressed: isLoading ? null : () async {
+            final ctrl = ref.read(rideActionControllerProvider.notifier);
+            rideAction.isRequesting ? await ctrl.cancelRide() : await ctrl.bookRide();
+          },
           icon: isLoading
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Colors.white),
-                )
-              : Icon(
-                  rideAction.isRequesting ? Icons.close : Icons.hail,
-                  color: Colors.white,
-                ),
+              ? const SizedBox(width: 18, height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+              : Icon(rideAction.isRequesting ? Icons.close : Icons.hail, color: Colors.white),
           label: Text(
             rideAction.isRequesting ? 'Cancel' : 'Book Ride',
-            style: GoogleFonts.inter(
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
-            ),
+            style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w600),
           ),
         ),
       ],
     );
   }
 
-  // ── Custom bottom bar ──────────────────────────────────────────────────────
+  // ── Bottom navigation bar ──────────────────────────────────────────────────
 
   Widget _buildCustomBottomBar() {
     return ClipRRect(
@@ -435,27 +426,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ? Colors.black.withValues(alpha: 0.4)
                 : Colors.white.withValues(alpha: 0.6),
             borderRadius: BorderRadius.circular(30),
-            border:
-                Border.all(color: Colors.white.withValues(alpha: 0.3), width: 1),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.1),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              ),
-            ],
+            border: Border.all(color: Colors.white.withValues(alpha: 0.3), width: 1),
+            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 10, offset: const Offset(0, 4))],
           ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _buildTabItem(0, 'Map', Icons.place),
-                  _buildTabItem(1, 'Activity', Icons.notes),
-                  _buildTabItem(2, 'Profile', Icons.person),
-                ],
-              ),
+              _buildTabItem(0, 'Map', Icons.place),
+              _buildTabItem(1, 'Activity', Icons.notes),
+              _buildTabItem(2, 'Profile', Icons.person),
             ],
           ),
         ),
@@ -464,13 +443,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Widget _buildTabItem(int index, String label, IconData icon) {
-    bool isSelected = _currentIndex == index;
+    final isSelected = _currentIndex == index;
     const activeColor = Color(0xFF007AFF);
     return GestureDetector(
-      onTap: () => setState(() {
-        _currentIndex = index;
-        if (index != 0) _selectedAuto = null;
-      }),
+      onTap: () => setState(() { _currentIndex = index; if (index != 0) _selectedAuto = null; }),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -485,24 +461,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              icon,
-              color: isSelected
-                  ? activeColor
-                  : (Theme.of(context).brightness == Brightness.dark
-                      ? Colors.white54
-                      : Colors.grey[600]),
-              size: 20,
-            ),
+            Icon(icon,
+              color: isSelected ? activeColor
+                  : (Theme.of(context).brightness == Brightness.dark ? Colors.white54 : Colors.grey[600]),
+              size: 20),
             if (isSelected)
-              Text(
-                label,
-                style: GoogleFonts.inter(
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  color: activeColor,
-                ),
-              ),
+              Text(label, style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.bold, color: activeColor)),
           ],
         ),
       ),

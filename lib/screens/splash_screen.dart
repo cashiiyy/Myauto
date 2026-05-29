@@ -3,14 +3,18 @@ import 'package:google_fonts/google_fonts.dart';
 import 'get_started_screen.dart';
 import 'dart:async';
 
-class SplashScreen extends StatefulWidget {
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../providers/auth_provider.dart';
+import 'permission_gate_screen.dart';
+
+class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
 
   @override
-  State<SplashScreen> createState() => _SplashScreenState();
+  ConsumerState<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMixin {
+class _SplashScreenState extends ConsumerState<SplashScreen> with TickerProviderStateMixin {
   late AnimationController _textFadeController;
   late AnimationController _autoSlideController;
   
@@ -56,12 +60,15 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
     // Hold the final state (just auto)
     await Future.delayed(const Duration(milliseconds: 600));
 
-    // 4. Dissolve completely into the Get Started screen
+    // 4. Dissolve completely into the appropriate screen
     if (mounted) {
+      final authUser = ref.read(authStateProvider).value;
+      
       Navigator.pushReplacement(
         context,
         PageRouteBuilder(
-          pageBuilder: (context, animation, secondaryAnimation) => const GetStartedScreen(),
+          pageBuilder: (context, animation, secondaryAnimation) => 
+              authUser != null ? const PermissionGateScreen() : const GetStartedScreen(),
           transitionsBuilder: (context, animation, secondaryAnimation, child) {
             return FadeTransition(opacity: animation, child: child);
           },

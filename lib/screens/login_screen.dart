@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../models/user_model.dart';
 import '../providers/auth_provider.dart';
-import 'home_screen.dart';
+import 'permission_gate_screen.dart';
 import 'registration_passenger.dart';
 import 'registration_driver.dart';
 
@@ -37,7 +37,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         phone: '',
         createdAt: DateTime.now(),
       );
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const PermissionGateScreen()));
     }
   }
 

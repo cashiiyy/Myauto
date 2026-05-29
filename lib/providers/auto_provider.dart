@@ -1,7 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/auto_model.dart';
-import 'auth_provider.dart'; // uses firestoreProvider from here
-import 'rtdb_provider.dart'; // uses RTDB-based stream providers
+import 'auth_provider.dart';
 
 /// Legacy Firestore-based driver list stream.
 /// Still used as a fallback or when RTDB is unavailable.

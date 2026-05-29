@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/auth_provider.dart';
 import '../models/user_model.dart';
-import 'home_screen.dart';
+import 'permission_gate_screen.dart';
 
 class RegistrationDriverScreen extends ConsumerStatefulWidget {
   const RegistrationDriverScreen({super.key});
@@ -50,7 +50,7 @@ class _RegistrationDriverScreenState extends ConsumerState<RegistrationDriverScr
       ref.read(localSessionProvider.notifier).state = user;
 
       if(!mounted) return;
-      Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const HomeScreen()), (route) => false);
+      Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const PermissionGateScreen()), (route) => false);
     } else {
       final error = ref.read(authControllerProvider).error;
       if(!mounted) return;
@@ -58,7 +58,7 @@ class _RegistrationDriverScreenState extends ConsumerState<RegistrationDriverScr
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
       } else {
         // Mock mode: proceed to home
-        Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const HomeScreen()), (route) => false);
+        Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const PermissionGateScreen()), (route) => false);
       }
     }
   }

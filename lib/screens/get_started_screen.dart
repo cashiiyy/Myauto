@@ -5,7 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../models/user_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/user_provider.dart';
-import 'home_screen.dart';
+import 'permission_gate_screen.dart';
 import 'login_screen.dart';
 import 'registration_passenger.dart';
 import 'registration_driver.dart';
@@ -107,7 +107,7 @@ class _GetStartedScreenState extends ConsumerState<GetStartedScreen>
       } else {
         Navigator.pushAndRemoveUntil(
           context,
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
+          MaterialPageRoute(builder: (_) => const PermissionGateScreen()),
           (route) => false,
         );
       }
@@ -401,12 +401,15 @@ class _GetStartedScreenState extends ConsumerState<GetStartedScreen>
               children: [
                 Icon(fallbackIcon, size: 20, color: Colors.black54),
                 const SizedBox(width: 10),
-                Text(
-                  label,
-                  style: GoogleFonts.inter(
-                    fontSize: 15,
-                    color: Colors.black87,
-                    fontWeight: FontWeight.w500,
+                Flexible(
+                  child: Text(
+                    label,
+                    style: GoogleFonts.inter(
+                      fontSize: 15,
+                      color: Colors.black87,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],

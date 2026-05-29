@@ -1,0 +1,41 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // -------------------------------------------------------------------------
+    // USERS COLLECTION
+    // -------------------------------------------------------------------------
+    match /users/{userId} {
+      // ALLOW READ: Any authenticated user needs to be able to read user profiles
+      // (e.g., a driver needs to read a passenger's name/phone, and vice versa).
+      allow read: if request.auth != null;
+      
+      // ALLOW WRITE: A user can only create, update, or delete their OWN profile document.
+      // This fixes the PERMISSION_DENIED error when updating GPS coordinates.
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // -------------------------------------------------------------------------
+    // OTHER COLLECTIONS (e.g., rides, history, etc.)
+    // -------------------------------------------------------------------------
+    // If you have a 'rides' or 'trips' collection, you can uncomment and adjust this:
+    /*
+    match /rides/{rideId} {
+      // Allow if the user is a participant in the ride
+      allow read, update: if request.auth != null && 
+                          (resource.data.passengerId == request.auth.uid || 
+                           resource.data.driverId == request.auth.uid);
+      allow create: if request.auth != null;
+    }
+    */
+
+    // -------------------------------------------------------------------------
+    // DEFAULT SECURITY
+    // -------------------------------------------------------------------------
+    // Deny all access to any other collections not explicitly listed above.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

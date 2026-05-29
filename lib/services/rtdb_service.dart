@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'package:flutter/widgets.dart';
 import 'package:firebase_database/firebase_database.dart';
 import '../models/driver_location_model.dart';
 import '../models/ride_request_model.dart';
@@ -78,23 +79,39 @@ class RtdbService {
   }) {
     return _db.ref(_driversNode).onValue.map((event) {
       final data = event.snapshot.value;
-      if (data == null) return <DriverLocationModel>[];
+      debugPrint('🟡 [STAGE-C] active_drivers onValue — type: ${data.runtimeType}, isNull: ${data == null}');
+
+      if (data == null) {
+        debugPrint('🔴 [STAGE-C] active_drivers is EMPTY in RTDB');
+        return <DriverLocationModel>[];
+      }
+
+      // Defensive: handle unexpected data shapes gracefully
+      if (data is! Map) {
+        debugPrint('🔴 [STAGE-C] UNEXPECTED TYPE: ${data.runtimeType} — expected Map. Data: $data');
+        return <DriverLocationModel>[];
+      }
 
       final rawMap = data as Map<dynamic, dynamic>;
       final List<DriverLocationModel> result = [];
 
       for (final entry in rawMap.entries) {
         if (entry.key.toString() == excludeUid) continue;
-        final model = DriverLocationModel.fromMap(
-          entry.key.toString(),
-          entry.value as Map<dynamic, dynamic>,
-        );
-        final dist = _haversineKm(
-            centerLat, centerLng, model.latitude, model.longitude);
-        if (dist <= radiusKm) {
-          result.add(model);
+        try {
+          final model = DriverLocationModel.fromMap(
+            entry.key.toString(),
+            entry.value as Map<dynamic, dynamic>,
+          );
+          final dist = _haversineKm(
+              centerLat, centerLng, model.latitude, model.longitude);
+          if (dist <= radiusKm) {
+            result.add(model);
+          }
+        } catch (e) {
+          debugPrint('🔴 [STAGE-C] Failed to parse driver ${entry.key}: $e');
         }
       }
+      debugPrint('🟢 [STAGE-C] active_drivers: ${rawMap.length} total, ${result.length} within ${radiusKm}km');
       return result;
     });
   }
@@ -108,25 +125,38 @@ class RtdbService {
   }) {
     return _db.ref(_requestsNode).onValue.map((event) {
       final data = event.snapshot.value;
+      debugPrint('🟡 [STAGE-C-REQ] ride_requests onValue — type: ${data.runtimeType}, isNull: ${data == null}');
+
       if (data == null) return <RideRequestModel>[];
+
+      // Defensive: handle unexpected data shapes gracefully
+      if (data is! Map) {
+        debugPrint('🔴 [STAGE-C-REQ] UNEXPECTED TYPE: ${data.runtimeType} — expected Map');
+        return <RideRequestModel>[];
+      }
 
       final rawMap = data as Map<dynamic, dynamic>;
       final List<RideRequestModel> result = [];
 
       for (final entry in rawMap.entries) {
         if (entry.key.toString() == excludeUid) continue;
-        final model = RideRequestModel.fromMap(
-          entry.key.toString(),
-          entry.value as Map<dynamic, dynamic>,
-        );
-        if (model.status == 'waiting') {
-          final dist = _haversineKm(
-              centerLat, centerLng, model.latitude, model.longitude);
-          if (dist <= radiusKm) {
-            result.add(model);
+        try {
+          final model = RideRequestModel.fromMap(
+            entry.key.toString(),
+            entry.value as Map<dynamic, dynamic>,
+          );
+          if (model.status == 'waiting') {
+            final dist = _haversineKm(
+                centerLat, centerLng, model.latitude, model.longitude);
+            if (dist <= radiusKm) {
+              result.add(model);
+            }
           }
+        } catch (e) {
+          debugPrint('🔴 [STAGE-C-REQ] Failed to parse request ${entry.key}: $e');
         }
       }
+      debugPrint('🟢 [STAGE-C-REQ] ride_requests: ${rawMap.length} total, ${result.length} within ${radiusKm}km');
       return result;
     });
   }
@@ -140,23 +170,36 @@ class RtdbService {
   }) {
     return _db.ref(_sharesNode).onValue.map((event) {
       final data = event.snapshot.value;
+      debugPrint('🟡 [STAGE-C-SHARE] ride_shares onValue — type: ${data.runtimeType}, isNull: ${data == null}');
+
       if (data == null) return <RideShareModel>[];
+
+      // Defensive: handle unexpected data shapes gracefully
+      if (data is! Map) {
+        debugPrint('🔴 [STAGE-C-SHARE] UNEXPECTED TYPE: ${data.runtimeType} — expected Map');
+        return <RideShareModel>[];
+      }
 
       final rawMap = data as Map<dynamic, dynamic>;
       final List<RideShareModel> result = [];
 
       for (final entry in rawMap.entries) {
         if (entry.key.toString() == excludeUid) continue;
-        final model = RideShareModel.fromMap(
-          entry.key.toString(),
-          entry.value as Map<dynamic, dynamic>,
-        );
-        final dist = _haversineKm(
-            centerLat, centerLng, model.latitude, model.longitude);
-        if (dist <= radiusKm) {
-          result.add(model);
+        try {
+          final model = RideShareModel.fromMap(
+            entry.key.toString(),
+            entry.value as Map<dynamic, dynamic>,
+          );
+          final dist = _haversineKm(
+              centerLat, centerLng, model.latitude, model.longitude);
+          if (dist <= radiusKm) {
+            result.add(model);
+          }
+        } catch (e) {
+          debugPrint('🔴 [STAGE-C-SHARE] Failed to parse share ${entry.key}: $e');
         }
       }
+      debugPrint('🟢 [STAGE-C-SHARE] ride_shares: ${rawMap.length} total, ${result.length} within ${radiusKm}km');
       return result;
     });
   }

@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import '../services/location_service.dart';
@@ -14,7 +15,10 @@ final currentLocationProvider = StreamProvider<Position?>((ref) async* {
   // First, get an initial position so the UI renders quickly
   final initialPos = await locationService.getCurrentLocation();
   if (initialPos != null) {
+    debugPrint('📍 [LocationProvider] Initial position: ${initialPos.latitude}, ${initialPos.longitude}');
     yield initialPos;
+  } else {
+    debugPrint('📍 [LocationProvider] Initial position is NULL — GPS unavailable');
   }
 
   // Then start listening to continuous updates
@@ -36,4 +40,48 @@ final currentLocationProvider = StreamProvider<Position?>((ref) async* {
       });
     }
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stable Center Provider
+// ─────────────────────────────────────────────────────────────────────────────
+// 
+// This provider only updates when the user moves more than 500m from the
+// last-known center. RTDB StreamProviders watch THIS instead of
+// currentLocationProvider, preventing the stream invalidation loop where
+// every 10m GPS tick would destroy and re-create all Firebase listeners.
+//
+// BUG FIX: Without this, markers would flicker/vanish because Riverpod
+// re-evaluates StreamProviders when any watched dependency changes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _StableCenterNotifier extends StateNotifier<Position?> {
+  _StableCenterNotifier(Ref ref) : super(null) {
+    ref.listen<AsyncValue<Position?>>(currentLocationProvider, (prev, next) {
+      final newPos = next.valueOrNull;
+      if (newPos == null) return;
+
+      // First valid position — set immediately
+      if (state == null) {
+        debugPrint('📌 [StableCenter] First center set: ${newPos.latitude}, ${newPos.longitude}');
+        state = newPos;
+        return;
+      }
+
+      // Only update if moved > 500m to prevent stream invalidation
+      final dist = Geolocator.distanceBetween(
+        state!.latitude, state!.longitude,
+        newPos.latitude, newPos.longitude,
+      );
+      if (dist > 500) {
+        debugPrint('📌 [StableCenter] Re-centered (moved ${dist.toStringAsFixed(0)}m)');
+        state = newPos;
+      }
+    });
+  }
+}
+
+final stableCenterProvider =
+    StateNotifierProvider<_StableCenterNotifier, Position?>((ref) {
+  return _StableCenterNotifier(ref);
 });

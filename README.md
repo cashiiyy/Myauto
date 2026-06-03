@@ -1,9 +1,6 @@
-````markdown
 # 🚖 MyAuto
-
 <div align="center">
 
-# MyAuto
 ### Smart Ride Discovery, Ride Booking & Community Mobility Platform
 
 [![Flutter](https://img.shields.io/badge/Flutter-3.x-02569B?logo=flutter&logoColor=white)](https://flutter.dev)
@@ -17,7 +14,6 @@
 
 </div>
 
----
 
 ## 📖 Overview
 
@@ -237,15 +233,15 @@ lib/
 
 ### Live Tracking
 
-- [ ] Real-time GPS Updates
-- [ ] Driver Location Streaming
-- [ ] Passenger Location Streaming
-- [ ] Dynamic Marker Updates
+- [x] Real-time GPS Updates
+- [x] Driver Location Streaming
+- [x] Passenger Location Streaming
+- [x] Dynamic Marker Updates
 
 ### Discovery System
 
-- [ ] Nearby Driver Discovery
-- [ ] Nearby Passenger Discovery
+- [x] Nearby Driver Discovery
+- [x] Nearby Passenger Discovery
 - [ ] Distance Calculations
 - [ ] Availability Detection
 
@@ -255,8 +251,8 @@ lib/
 
 ### Ride Booking
 
-- [ ] Ride Requests
-- [ ] Driver Acceptance
+- [x] Ride Requests
+- [x] Driver Acceptance
 - [ ] Ride Tracking
 - [ ] Ride Completion
 
@@ -367,17 +363,13 @@ Developed with ❤️ using Flutter, Firebase, and Google Maps.
 
 ---
 
-## 📄 License
-
-This project is licensed under the MIT License.
-
----
-
 <div align="center">
 
 ### 🚖 MyAuto — Smarter Rides, Better Connections
 
 Built with Flutter ❤️ Firebase ❤️ Google Maps
 
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?&logo=buy-me-a-coffee&logoColor=black)](#)
+
 </div>
-````

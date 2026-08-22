@@ -1,0 +1,112 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MyAuto Backend — Docker Compose
+# Services: backend, redis, postgres (PostGIS)
+# Redis and PostgreSQL are NEVER exposed on the host network.
+# Only the backend port 8000 is accessible from outside the Docker network.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── PostgreSQL with PostGIS ──────────────────────────────────────────────────
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: myauto_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-myauto}
+      POSTGRES_USER: ${POSTGRES_USER:-myauto}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - backend_net
+    # NOT exposed to host — only reachable via backend_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-myauto} -d ${POSTGRES_DB:-myauto}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── Redis ────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: myauto_redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --save 60 1000
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend_net
+    # NOT exposed to host — only reachable via backend_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── FastAPI Backend ───────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: myauto_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"   # Only the backend port is accessible from outside
+    environment:
+      # Database
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-myauto}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-myauto}
+      DATABASE_SYNC_URL: postgresql://${POSTGRES_USER:-myauto}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-myauto}
+      # Redis
+      REDIS_URL: redis://redis:6379/0
+      # Firebase
+      FIREBASE_SERVICE_ACCOUNT_PATH: /app/secrets/serviceAccountKey.json
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-myauto-493fc}
+      # App
+      APP_ENV: ${APP_ENV:-production}
+      APP_LOG_LEVEL: ${APP_LOG_LEVEL:-info}
+      # Security
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      # Thresholds (fall back to defaults from settings.py if not set)
+      MAX_MATCH_ACCURACY_METERS: ${MAX_MATCH_ACCURACY_METERS:-100.0}
+      MAX_MATCH_AGE_SECONDS: ${MAX_MATCH_AGE_SECONDS:-30}
+      INITIAL_RADIUS_KM: ${INITIAL_RADIUS_KM:-2.0}
+      FALLBACK_RADIUS_KM: ${FALLBACK_RADIUS_KM:-5.0}
+      MAX_RADIUS_KM: ${MAX_RADIUS_KM:-10.0}
+    volumes:
+      # Bind-mount the service account key — NEVER bake it into the image
+      - ./secrets/serviceAccountKey.json:/app/secrets/serviceAccountKey.json:ro
+    networks:
+      - backend_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+# ── Volumes ───────────────────────────────────────────────────────────────────
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# ── Networks ──────────────────────────────────────────────────────────────────
+networks:
+  backend_net:
+    driver: bridge
+    internal: false   # backend can reach internet (for Firebase Admin SDK)

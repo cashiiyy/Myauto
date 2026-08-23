@@ -1,6 +1,9 @@
 """
 Drivers API
 ===========
+
+GET /api/drivers/nearby — returns nearby drivers with their actual stored
+coordinates fetched from the Redis location hash.
 """
 
 from fastapi import APIRouter, Depends
@@ -9,9 +12,11 @@ import redis.asyncio as aioredis
 from app.auth.firebase_auth import VerifiedToken, get_current_user
 from app.redis.client import get_redis
 from app.redis.geo import geo_search_drivers
+from app.redis.keys import RedisKeys
 from app.schemas.driver import NearbyDriverResponse
 
 router = APIRouter(prefix="/api/drivers", tags=["Drivers"])
+
 
 @router.get("/nearby", response_model=list[NearbyDriverResponse])
 async def get_nearby_drivers(
@@ -21,15 +26,53 @@ async def get_nearby_drivers(
     user: VerifiedToken = Depends(get_current_user),
     redis: aioredis.Redis = Depends(get_redis),
 ):
+    """
+    Return nearby available drivers within radius_km of (lat, lng).
+    Driver coordinates are fetched from the Redis location hash,
+    NOT from the GEO index (GEO precision is ~0.6mm but we store the
+    validated, server-received coordinates in the hash).
+
+    Phone numbers are NEVER returned by this endpoint.
+    """
     candidates = await geo_search_drivers(redis, lat, lng, radius_km)
-    
+
     responses = []
-    for uid, dist in candidates:
+    for uid, dist_km in candidates:
+        # Fetch actual stored coordinates from the location hash
+        loc_key = RedisKeys.driver_location(uid)
+        loc_data = await redis.hgetall(loc_key)
+
+        if not loc_data:
+            # Location key expired — driver has gone stale; skip
+            continue
+
+        try:
+            driver_lat = float(loc_data.get("latitude", 0))
+            driver_lng = float(loc_data.get("longitude", 0))
+            freshness = loc_data.get("freshness", "STALE")
+            heading = loc_data.get("heading_degrees")
+            accuracy = loc_data.get("accuracy_meters")
+        except (TypeError, ValueError):
+            continue
+
+        # Skip drivers whose location is too stale to be useful
+        if freshness == "OFFLINE":
+            continue
+
+        # Check availability
+        avail_key = RedisKeys.driver_availability(uid)
+        driver_state = await redis.get(avail_key)
+        is_available = driver_state == "AVAILABLE"
+
         responses.append(NearbyDriverResponse(
             driver_uid=uid,
-            latitude=lat, # Mock, needs true location lookup from hash
-            longitude=lng, # Mock, needs true location lookup from hash
-            distance_km=dist,
-            freshness="LIVE"
+            latitude=driver_lat,
+            longitude=driver_lng,
+            distance_km=dist_km,
+            heading_degrees=float(heading) if heading else None,
+            accuracy_meters=float(accuracy) if accuracy else None,
+            freshness=freshness,
+            is_available=is_available,
         ))
+
     return responses

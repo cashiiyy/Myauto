@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     # ── Application ───────────────────────────────────────────────────────────
     app_env: str = "development"
     app_host: str = "0.0.0.0"
-    app_port: int = 8000
+    app_port: int = 8919
     app_log_level: str = "info"
 
     # ── Database ──────────────────────────────────────────────────────────────
@@ -119,7 +119,10 @@ class Settings(BaseSettings):
         p = Path(self.firebase_service_account_path)
         if not p.is_absolute():
             # Resolve relative to the backend/ directory
-            p = Path(__file__).parent.parent / p
+            backend_dir = Path(__file__).resolve().parent.parent.parent
+            if (backend_dir / p).is_file():
+                return backend_dir / p
+            return backend_dir / p
         return p
 
     @field_validator("app_env")

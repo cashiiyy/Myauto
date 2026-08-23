@@ -5,22 +5,11 @@ allprojects {
     }
 }
 
-val newBuildDir: Directory =
-    rootProject.layout.buildDirectory
-        .dir("../../build")
-        .get()
-rootProject.layout.buildDirectory.value(newBuildDir)
-
-subprojects {
-    val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
-    project.layout.buildDirectory.value(newSubprojectBuildDir)
-}
-<<<<<<< HEAD
+// The build directory redirection was causing issues with cross-drive relative paths.
+// Reverting to default build directory location.
 subprojects {
     project.evaluationDependsOn(":app")
 }
-=======
->>>>>>> 0bd16af (updated README.md)
 
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)

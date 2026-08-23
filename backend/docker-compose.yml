@@ -2,7 +2,7 @@
 # MyAuto Backend — Docker Compose
 # Services: backend, redis, postgres (PostGIS)
 # Redis and PostgreSQL are NEVER exposed on the host network.
-# Only the backend port 8000 is accessible from outside the Docker network.
+# Only the backend port 8919 is accessible from outside the Docker network.
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
@@ -60,7 +60,7 @@ services:
     container_name: myauto_backend
     restart: unless-stopped
     ports:
-      - "8000:8000"   # Only the backend port is accessible from outside
+      - "8919:8919"   # Only the backend port is accessible from outside
     environment:
       # Database
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-myauto}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-myauto}
@@ -92,7 +92,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8919/health"]
       interval: 15s
       timeout: 5s
       retries: 3

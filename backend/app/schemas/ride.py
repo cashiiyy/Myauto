@@ -30,7 +30,7 @@ class CreateRideRequest(BaseModel):
 class RideRequestResponse(BaseModel):
     """Response after creating a ride request."""
 
-    request_id: UUID
+    request_id: str  # UUID as string
     status: str
     message: str
     created_at: datetime
@@ -42,7 +42,7 @@ class RideRequestResponse(BaseModel):
 class MatchActionResponse(BaseModel):
     """Response after accept/reject of a match."""
 
-    match_id: UUID
+    match_id: str  # ride/match ID — string to avoid UUID conversion errors from path params
     status: str
     message: str
 

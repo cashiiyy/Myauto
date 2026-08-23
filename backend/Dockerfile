@@ -46,16 +46,16 @@ RUN chown -R myauto:myauto /app
 USER myauto
 
 # Expose application port
-EXPOSE 8000
+EXPOSE 8919
 
 # Health check — uses the /health endpoint
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:8919/health || exit 1
 
 # Default: run uvicorn with graceful shutdown
 CMD ["uvicorn", "app.main:app", \
      "--host", "0.0.0.0", \
-     "--port", "8000", \
+     "--port", "8919", \
      "--workers", "1", \
      "--loop", "uvloop", \
      "--log-level", "info", \

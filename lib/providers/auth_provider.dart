@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -37,11 +38,10 @@ final localSessionProvider = StateProvider<UserModel?>((ref) => null);
 final currentUserProvider = StreamProvider<UserModel?>((ref) async* {
   final firestore = ref.watch(firestoreProvider);
   final authUser = ref.watch(authStateProvider).value;
-  final localUser = ref.watch(localSessionProvider);
 
   // In Mock Mode (no Firebase), return local session
   if (firestore == null) {
-    yield localUser;
+    yield ref.watch(localSessionProvider);
     return;
   }
 
@@ -51,51 +51,40 @@ final currentUserProvider = StreamProvider<UserModel?>((ref) async* {
     return;
   }
 
-  // First yield local user so UI doesn't flicker while getting snapshot
-  yield localUser;
+  // Yield existing local session initially if present to prevent UI flickering
+  final initialLocalUser = ref.read(localSessionProvider);
+  if (initialLocalUser != null) {
+    yield initialLocalUser;
+  }
 
   try {
     await for (final doc in firestore.collection('users').doc(authUser.uid).snapshots()) {
       if (doc.exists && doc.data() != null) {
         final userModel = UserModel.fromMap(doc.data()!, doc.id);
-        if (ref.read(localSessionProvider) == null) {
-          Future.microtask(() {
-            ref.read(localSessionProvider.notifier).state = userModel;
-          });
-        }
         yield userModel;
       } else {
-        if (localUser != null) {
-          yield localUser;
-        } else {
-          // Document missing in Firestore but user is logged in via Auth.
-          // Create a fallback user model
-          final fallbackUser = UserModel(
-            uid: authUser.uid,
-            email: authUser.email ?? '',
-            role: 'passenger', // default to passenger role
-            name: authUser.displayName ?? (authUser.email != null ? authUser.email!.split('@').first : 'User'),
-            phone: authUser.phoneNumber ?? '',
-            createdAt: DateTime.now(),
-          );
-          
-          // Write it to Firestore asynchronously so it exists next time
-          firestore.collection('users').doc(authUser.uid).set(fallbackUser.toMap()).catchError((e) {
-            print('Failed to create missing user document: $e');
-          });
-          
-          Future.microtask(() {
-            ref.read(localSessionProvider.notifier).state = fallbackUser;
-          });
-          
-          yield fallbackUser;
-        }
+        // Document missing in Firestore but user is logged in via Auth.
+        // Create a fallback user model
+        final fallbackUser = UserModel(
+          uid: authUser.uid,
+          email: authUser.email ?? '',
+          role: 'passenger', // default to passenger role
+          name: authUser.displayName ?? (authUser.email != null ? authUser.email!.split('@').first : 'User'),
+          phone: authUser.phoneNumber ?? '',
+          createdAt: DateTime.now(),
+        );
+        
+        // Write it to Firestore asynchronously so it exists next time
+        firestore.collection('users').doc(authUser.uid).set(fallbackUser.toMap()).catchError((e) {
+          debugPrint('Failed to create missing user document: $e');
+        });
+        
+        yield fallbackUser;
       }
     }
   } catch (error) {
-    print('Firestore snapshot error caught: $error');
-    // Maintain the local user state if Firestore permission is denied or network fails.
-    yield localUser;
+    debugPrint('Firestore snapshot error caught: $error');
+    yield ref.read(localSessionProvider);
   }
 });
 
@@ -171,7 +160,8 @@ class AuthController extends StateNotifier<AsyncValue<void>> {
     }
     try {
       final googleUser = await GoogleSignIn(
-        clientId: '252031920183-qb88a1c6sagbrhtij9scukijh6nqre6j.apps.googleusercontent.com',
+        clientId: kIsWeb ? '252031920183-qb88a1c6sagbrhtij9scukijh6nqre6j.apps.googleusercontent.com' : null,
+        serverClientId: '252031920183-qb88a1c6sagbrhtij9scukijh6nqre6j.apps.googleusercontent.com',
       ).signIn();
       if (googleUser == null) {
         state = const AsyncValue.data(null);

@@ -111,6 +111,16 @@ class LocationUpdate(BaseModel):
         return v
 
 
+
+class LocationUpdateWithRole(LocationUpdate):
+    """
+    Location update with an explicit role field.
+    Used by POST /api/location to distinguish driver vs passenger updates.
+    In production the role would always be fetched from the database.
+    """
+    role: str = "driver"  # "driver" | "passenger"
+
+
 class LocationResponse(BaseModel):
     """Server response after processing a location update."""
 

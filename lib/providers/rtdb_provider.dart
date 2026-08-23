@@ -10,6 +10,25 @@ import '../services/rtdb_service.dart';
 import 'location_provider.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ⚠️  PHASE 2 MIGRATION STATUS
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// nearbyDriversStreamProvider    — DEPRECATED (Stage C removal target)
+//                                  Primary source is now backendDriversProvider
+//
+// nearbyRideRequestsStreamProvider — DEPRECATED (Stage C removal target)
+//                                  Drivers now receive ride.requested WS events
+//
+// nearbyRideSharesStreamProvider — ACTIVE (ride-share not yet migrated to backend)
+//                                  Will be replaced once POST /api/shares exists
+//
+// rtdbServiceProvider            — ACTIVE (still needed for ride-share writes)
+// firebaseDatabaseProvider       — ACTIVE (still needed by rtdbServiceProvider)
+//
+// DO NOT add new RTDB-based mobility features here.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Core RTDB & Service Providers
 // ─────────────────────────────────────────────────────────────────────────────
 

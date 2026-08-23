@@ -8,7 +8,7 @@ pluginManagement {
             flutterSdkPath
         }
 
-    includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
+    includeBuild("flutter_gradle_tools")
 
     repositories {
         gradlePluginPortal()
@@ -19,9 +19,9 @@ pluginManagement {
 
 plugins {
     id("dev.flutter.flutter-plugin-loader") version "1.0.0"
-    id("com.android.application") version "8.11.1" apply false
-    id("org.jetbrains.kotlin.android") version "2.2.20" apply false
-    id("com.google.gms.google-services") version "4.4.0" apply false
+    id("com.android.application") version "8.13.2" apply false
+    id("org.jetbrains.kotlin.android") version "2.0.0" apply false
+    id("com.google.gms.google-services") version "4.4.2" apply false
     id("org.gradle.toolchains.foojay-resolver-convention") version "0.8.0"
 }
 

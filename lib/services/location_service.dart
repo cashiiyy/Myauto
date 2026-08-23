@@ -31,13 +31,24 @@ class LocationService {
         return null;
     }
 
-    // 3. Get position
+    // 3. Get position with fast fallback and timeout protection
     try {
+      final lastKnown = await Geolocator.getLastKnownPosition();
+      if (lastKnown != null) {
+        // Return quickly, but kick off an accurate update in background if needed
+        return lastKnown;
+      }
+
       return await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 5),
       );
     } catch (_) {
-      return null;
+      try {
+        return await Geolocator.getLastKnownPosition();
+      } catch (_) {
+        return null;
+      }
     }
   }
 }

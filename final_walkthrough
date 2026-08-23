@@ -1,0 +1,37 @@
+# Real-World Testing & Deployment Walkthrough
+
+## What Was Done
+
+1. **Public Tunnel Configured**:
+   - Initialized and mapped an active `ngrok` tunnel for port `8919`.
+   - **Public Backend URL**: `https://guidable-ferret-kite.ngrok-free.dev`
+   - **Public WebSocket URL**: `wss://guidable-ferret-kite.ngrok-free.dev/ws`
+   - Fully supports HTTPS and WSS (secure WebSockets).
+
+2. **Built Real-World Debug APK**:
+   - Injected the public endpoints at compile-time via `--dart-define`:
+     - `BACKEND_URL=https://guidable-ferret-kite.ngrok-free.dev`
+     - `BACKEND_WS_URL=wss://guidable-ferret-kite.ngrok-free.dev/ws`
+   - **Output APK Path**: `build/app/outputs/flutter-apk/app-debug.apk`
+
+---
+
+## How to Test on Real Devices (Any Cellular Network / Wi-Fi)
+
+1. **Distribute the APK**:
+   - Transfer `build/app/outputs/flutter-apk/app-debug.apk` to any phone (via WhatsApp, Google Drive, Telegram, or USB).
+   - Install the APK on the phone (Enable "Install unknown apps" if prompted).
+
+2. **Keep the Backend Services Running on PC**:
+   - **Docker (Redis)**: Ensure `myauto_redis` container is running.
+   - **FastAPI Backend**:
+     ```powershell
+     cd backend
+     uvicorn app.main:app --host 0.0.0.0 --port 8919
+     ```
+   - **Ngrok**: Running in the background forwarding traffic from `https://guidable-ferret-kite.ngrok-free.dev` to port `8919`.
+
+3. **Verify from Phone**:
+   - Open the MyAuto app on the phone.
+   - Sign in as a driver or rider.
+   - The app will automatically connect to `https://guidable-ferret-kite.ngrok-free.dev` and establish live WebSocket communication anywhere in the world!

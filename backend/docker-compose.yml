@@ -100,43 +100,7 @@ services:
       retries: 3
       start_period: 30s
 
-  # ── Node.js + Socket.IO Real-Time Server ─────────────────────────────────────
-  # Parallel real-time layer sharing the same PostgreSQL database as FastAPI.
-  # Enabled via --dart-define=REALTIME_MODE=socketio in Flutter.
-  nodejs:
-    build:
-      context: ../nodejs
-      dockerfile: Dockerfile
-    container_name: myauto_nodejs
-    restart: unless-stopped
-    ports:
-      - "3001:3001"
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-myauto}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-myauto}
-      REDIS_URL: redis://redis:6379/0
-      FIREBASE_SERVICE_ACCOUNT_PATH: /app/secrets/serviceAccountKey.json
-      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-myauto-493fc}
-      PORT: 3001
-      APP_ENV: ${APP_ENV:-production}
-      CORS_ORIGINS: ${CORS_ORIGINS:-}
-      INITIAL_RADIUS_KM: ${INITIAL_RADIUS_KM:-2.0}
-      FALLBACK_RADIUS_KM: ${FALLBACK_RADIUS_KM:-5.0}
-      FRESHNESS_STALE_SECONDS: ${FRESHNESS_STALE_SECONDS:-30}
-    volumes:
-      - ./secrets/serviceAccountKey.json:/app/secrets/serviceAccountKey.json:ro
-    networks:
-      - backend_net
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
-      interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
+
 
   # ── Valhalla Routing Engine ───────────────────────────────────────────────────
   # Open-source turn-by-turn routing engine.

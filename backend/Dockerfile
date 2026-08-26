@@ -1,62 +1,72 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# MyAuto Backend — Dockerfile
-# Multi-stage build: builder installs deps, runtime is lean
+# MyAuto Backend — Multi-Stage Production Dockerfile (Python 3.12 FastAPI)
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── Stage 1: dependency builder ───────────────────────────────────────────────
+# ── Stage 1: Build & Wheels ───────────────────────────────────────────────────
 FROM python:3.12-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR /build
 
-# Install build deps needed for some Python packages
+# Install build-time OS dependencies for compiling C-extensions (asyncpg, psycopg2)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Copy and install python dependencies
 COPY requirements.txt .
-RUN pip install --upgrade pip \
-    && pip install --prefix=/install --no-cache-dir -r requirements.txt
+RUN pip wheel --no-cache-dir --no-deps --wheel-dir /build/wheels -r requirements.txt
 
-# ── Stage 2: runtime ──────────────────────────────────────────────────────────
+
+# ── Stage 2: Runtime Image ────────────────────────────────────────────────────
 FROM python:3.12-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
 
 WORKDIR /app
 
-# Runtime system deps only
+# Install runtime OS dependencies only (libpq for postgres client, curl for healthcheck)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy installed packages from builder
-COPY --from=builder /install /usr/local
+# Install python wheels from builder stage
+COPY --from=builder /build/wheels /wheels
+COPY --from=builder /build/requirements.txt .
+RUN pip install --no-cache-dir /wheels/* && rm -rf /wheels
 
-# Copy application source
-COPY app/ ./app/
-COPY migrations/ ./migrations/
-COPY alembic.ini .
+# Create non-root user for security
+RUN useradd --system --no-create-home --shell /bin/false myauto \
+    && mkdir -p /app/secrets \
+    && chown -R myauto:myauto /app
 
-# Create secrets directory (actual file is bind-mounted at runtime, never baked in)
-RUN mkdir -p /app/secrets
+# Copy application source, migrations, and alembic config
+COPY --chown=myauto:myauto alembic.ini .
+COPY --chown=myauto:myauto migrations/ ./migrations/
+COPY --chown=myauto:myauto app/ ./app/
 
-# Non-root user for security
-RUN useradd --system --no-create-home --shell /bin/false myauto
-RUN chown -R myauto:myauto /app
+# Switch to non-root user
 USER myauto
 
-# Expose application port
+# Expose port
 EXPOSE 8919
 
-# Health check — uses the /health endpoint
-HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
+# Health check probe against GET /health
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -f http://localhost:8919/health || exit 1
 
-# Default: run uvicorn with graceful shutdown
-CMD ["uvicorn", "app.main:app", \
+# Start Uvicorn single worker (optimised for resource-constrained Intel i3/8GB home server)
+CMD ["python", "-m", "uvicorn", "app.main:app", \
      "--host", "0.0.0.0", \
      "--port", "8919", \
      "--workers", "1", \
-     "--loop", "uvloop", \
-     "--log-level", "info", \
-     "--access-log"]
+     "--log-level", "info"]

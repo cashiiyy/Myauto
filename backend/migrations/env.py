@@ -8,9 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from alembic import context
 
-from app.config.settings import get_settings
-from app.database.base import Base
-# Import models so they are registered with Base.metadata
+from app.core.config import get_settings
+from app.db.session import Base
+import app.db.models
 import app.models
 
 # this is the Alembic Config object, which provides

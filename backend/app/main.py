@@ -1,6 +1,7 @@
 """
 FastAPI Application Factory and Entrypoint
 ==========================================
+Main application factory with safe, optional service initialization.
 """
 
 import logging
@@ -10,13 +11,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import api_router
-from app.auth.firebase_auth import init_firebase
-from app.config.settings import get_settings
-from app.database.connection import close_engine
-from app.redis.client import close_redis, init_redis
+from app.core.config import get_settings
+from app.db.session import close_engine
+from app.services.firebase_adapter import init_firebase_sdk
 from app.websocket.handler import router as ws_router
 
-# Setup logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -27,45 +26,57 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Application startup and shutdown events.
+    Application lifecycle manager.
+    Safely boots optional services (Redis, Firebase, PostgreSQL) without hard dependencies.
     """
-    logger.info("Starting up MyAuto backend...")
-    
-    # 1. Initialize configuration
     settings = get_settings()
-    logger.info("Environment: %s", settings.app_env)
-    
-    # 2. Initialize Redis connection pool
-    await init_redis()
-    
-    # 3. Initialize Firebase Admin SDK
-    init_firebase()
-    
-    # DB engine is initialized lazily on first get_db call,
-    # but we could also eager load it here.
+    logger.info("Starting up MyAuto backend (env: %s, port: %d)...", settings.app_env, settings.app_port)
 
-    yield  # Application runs here
+    # 1. Optional Redis connection
+    try:
+        from app.redis.client import init_redis
+        await init_redis()
+    except Exception as e:
+        logger.warning("Redis initialization skipped or failed (safe fallback active): %s", e)
+
+    # 2. Optional Firebase initialization
+    try:
+        init_firebase_sdk()
+    except Exception as e:
+        logger.warning("Firebase initialization skipped (safe fallback active): %s", e)
+
+    yield  # Application serves requests
 
     logger.info("Shutting down MyAuto backend...")
-    
-    # 4. Clean up resources
-    await close_redis()
-    await close_engine()
+
+    # 3. Cleanup Redis
+    try:
+        from app.redis.client import close_redis
+        await close_redis()
+    except Exception as e:
+        logger.debug("Redis close ignored: %s", e)
+
+    # 4. Cleanup Database engine
+    try:
+        await close_engine()
+    except Exception as e:
+        logger.debug("Database engine close ignored: %s", e)
+
     logger.info("Shutdown complete.")
 
 
 def create_app() -> FastAPI:
-    """FastAPI factory."""
+    """FastAPI application factory."""
     settings = get_settings()
 
     app = FastAPI(
-        title="MyAuto Backend",
-        description="Centralised Phase 1 Backend for MyAuto",
+        title="MyAuto Backend API",
+        description="Centralised Backend API for MyAuto",
         version="1.0.0",
         lifespan=lifespan,
     )
 
-    # CORS
+    # CORS configuration
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins_list,
@@ -74,7 +85,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Routers
+    # Register API and WebSocket routers
     app.include_router(api_router)
     app.include_router(ws_router)
 

@@ -85,6 +85,6 @@ def downgrade() -> None:
     """Remove the indexes added by this migration."""
     op.execute("DROP INDEX IF EXISTS driver_locations_location_gix")
     op.execute("DROP INDEX IF EXISTS ride_requests_pickup_location_gix")
-    op.execute("DROP INDEX IF EXISTS rides_origin_location_gix")
-    op.execute("DROP INDEX IF EXISTS rides_destination_location_gix")
+    op.execute("DROP INDEX IF EXISTS rides_pickup_location_gix")
+    op.execute("DROP INDEX IF EXISTS rides_dropoff_location_gix")
     op.execute("DROP INDEX IF EXISTS driver_locations_available_updated_idx")

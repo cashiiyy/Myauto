@@ -83,7 +83,8 @@ services:
       FALLBACK_RADIUS_KM: ${FALLBACK_RADIUS_KM:-5.0}
       MAX_RADIUS_KM: ${MAX_RADIUS_KM:-10.0}
     volumes:
-      # Bind-mount the service account key — NEVER bake it into the image
+      - ./app:/app/app
+      - ./migrations:/app/migrations
       - ./secrets/serviceAccountKey.json:/app/secrets/serviceAccountKey.json:ro
     networks:
       - backend_net

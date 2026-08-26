@@ -147,32 +147,20 @@ services:
   # ── Photon Geocoding ──────────────────────────────────────────────────────────
   # Open-source geocoding based on OpenStreetMap data.
   # Official image: komoot/photon  (NOT mediagis/photon)
+  # ── Photon Geocoding (Optional Self-Hosted) ───────────────────────────────────
+  # Open-source geocoding based on OpenStreetMap data.
+  # Community Docker Hub image: mediagis/photon:latest
   #
-  # Volume path: /photon/data  (correct for komoot/photon image)
-  #
-  # SETUP (first run only):
-  #   Photon needs a pre-built Elasticsearch data directory.
-  #   Option A (Recommended for development):
-  #     Set PHOTON_URL=https://photon.komoot.io in Flutter dart-define.
-  #     The free public endpoint is rate-limited but suitable for development.
-  #     This container will not be started in dev.
-  #
-  #   Option B (Self-hosted production):
-  #     1. Download the India Photon data extract (~2GB):
-  #        https://download1.graphhopper.com/public/photon-db-latest.tar.bz2
-  #     2. Extract to ./photon_data/
-  #     3. Start the container: docker compose up -d photon
-  #
-  # Data directory structure expected inside container: /photon/data/
+  # Note: Requires downloading a pre-built Photon database extract on first run.
+  # For development, you can use the free public endpoint: PHOTON_URL=https://photon.komoot.io
   photon:
-    image: komoot/photon:latest
+    image: mediagis/photon:latest
     container_name: myauto_photon
     restart: unless-stopped
     ports:
       - "2322:2322"
     volumes:
-      - photon_data:/photon/data
-    command: ["-data-dir", "/photon/data", "-listen-ip", "0.0.0.0", "-listen-port", "2322"]
+      - photon_data:/photon/photon_data
     networks:
       - backend_net
     healthcheck:

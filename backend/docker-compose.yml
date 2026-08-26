@@ -62,10 +62,17 @@ services:
     restart: unless-stopped
     ports:
       - "8919:8919"   # Only the backend port is accessible from outside
+    env_file:
+      - .env
     environment:
       # Database
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-myauto}:${POSTGRES_PASSWORD:-myauto}@postgres:5432/${POSTGRES_DB:-myauto}
       DATABASE_SYNC_URL: postgresql://${POSTGRES_USER:-myauto}:${POSTGRES_PASSWORD:-myauto}@postgres:5432/${POSTGRES_DB:-myauto}
+      ENABLE_POSTGRES: ${ENABLE_POSTGRES:-true}
+      ENABLE_VALHALLA: ${ENABLE_VALHALLA:-false}
+      ENABLE_FIREBASE_AUTH: ${ENABLE_FIREBASE_AUTH:-false}
+      PHOTON_URL: ${PHOTON_URL:-https://photon.komoot.io}
+      VALHALLA_URL: ${VALHALLA_URL:-https://valhalla1.openstreetmap.de}
       # Redis
       REDIS_URL: redis://redis:6379/0
       # Firebase

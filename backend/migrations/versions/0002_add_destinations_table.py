@@ -11,7 +11,7 @@ import geoalchemy2
 
 # revision identifiers
 revision = '0002_destinations'
-down_revision = None  # Set to the last migration revision ID if applicable
+down_revision = '0001_initial'
 branch_labels = None
 depends_on = None
 

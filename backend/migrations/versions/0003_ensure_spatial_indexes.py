@@ -53,11 +53,11 @@ def upgrade() -> None:
                 WHERE table_name = 'rides'
                   AND table_schema = 'public'
             ) THEN
-                CREATE INDEX IF NOT EXISTS rides_origin_location_gix
-                ON rides USING GIST(origin_location);
+                CREATE INDEX IF NOT EXISTS rides_pickup_location_gix
+                ON rides USING GIST(pickup_location);
 
-                CREATE INDEX IF NOT EXISTS rides_destination_location_gix
-                ON rides USING GIST(destination_location);
+                CREATE INDEX IF NOT EXISTS rides_dropoff_location_gix
+                ON rides USING GIST(dropoff_location);
             END IF;
         END $$;
     """)

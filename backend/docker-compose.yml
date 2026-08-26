@@ -17,7 +17,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-myauto}
       POSTGRES_USER: ${POSTGRES_USER:-myauto}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-myauto}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
@@ -58,15 +58,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: runtime
     container_name: myauto_backend
     restart: unless-stopped
     ports:
       - "8919:8919"   # Only the backend port is accessible from outside
     environment:
       # Database
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-myauto}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-myauto}
-      DATABASE_SYNC_URL: postgresql://${POSTGRES_USER:-myauto}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-myauto}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-myauto}:${POSTGRES_PASSWORD:-myauto}@postgres:5432/${POSTGRES_DB:-myauto}
+      DATABASE_SYNC_URL: postgresql://${POSTGRES_USER:-myauto}:${POSTGRES_PASSWORD:-myauto}@postgres:5432/${POSTGRES_DB:-myauto}
       # Redis
       REDIS_URL: redis://redis:6379/0
       # Firebase

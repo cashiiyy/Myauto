@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/auth_provider.dart';
 import '../services/backend/ws_client.dart';
+import '../services/realtime/realtime_adapter.dart';
 import '../models/backend_event.dart';
 
 export '../services/backend/ws_client.dart';
@@ -48,3 +49,51 @@ final backendEventsProvider = StreamProvider<BackendEvent>((ref) {
   final client = ref.watch(wsClientProvider);
   return client.events;
 });
+
+// ── New: Realtime Adapter Provider ────────────────────────────────────────────
+//
+// This provider selects the real-time transport layer based on REALTIME_MODE.
+//
+// REALTIME_MODE=websocket (default):
+//   Returns null — callers continue using the existing wsClientProvider /
+//   BackendWebSocketClient path. Zero behaviour change.
+//
+// REALTIME_MODE=socketio:
+//   Returns a SocketIoRealtimeAdapter that connects to the Node.js server.
+//
+// REALTIME_MODE=mock:
+//   Returns a MockRealtimeAdapter that emits no events.
+
+/// The active [RealtimeAdapter], or null when using the default WebSocket path.
+///
+/// When null, all providers continue to use [wsClientProvider] as before.
+/// When non-null, consumers can subscribe to [RealtimeAdapter.events] for
+/// Socket.IO or mock events.
+final realtimeAdapterProvider = Provider<RealtimeAdapter?>((ref) {
+  final adapter = createRealtimeAdapter();
+  if (adapter != null) {
+    ref.onDispose(adapter.dispose);
+    // Connect after the first frame to avoid build-phase side-effects
+    Future.microtask(() => adapter.connect());
+  }
+  return adapter;
+});
+
+/// Unified backend events stream — merges [backendEventsProvider] (WebSocket)
+/// with the active [realtimeAdapterProvider] (Socket.IO / mock) events.
+///
+/// Existing consumers of [backendEventsProvider] are unaffected — they still
+/// receive WebSocket events. New consumers can use this merged provider to
+/// receive events from whichever transport is active.
+final mergedBackendEventsProvider = StreamProvider<BackendEvent>((ref) {
+  final adapter = ref.watch(realtimeAdapterProvider);
+
+  // Default path: existing WebSocket events only
+  if (adapter == null) {
+    return ref.watch(backendEventsProvider.stream);
+  }
+
+  // New path: only Socket.IO / mock events (WebSocket is not connected)
+  return adapter.events;
+});
+

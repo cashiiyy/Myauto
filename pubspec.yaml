@@ -29,6 +29,23 @@ dependencies:
   # ── Backend integration (Phase 2) ─────────────────────────────────────────
   web_socket_channel: ^2.4.0
   dio: ^5.4.3
+  # ── New technology stack adapters ─────────────────────────────────────────
+  # maplibre_gl: ^0.27.0  (verified latest on pub.dev, Aug 2026)
+  #   Supports: Android ✅  iOS ✅  Web ✅
+  #   Published by: maplibre.org (verified publisher)
+  #   Feature-flag: MAP_MODE=maplibre dart-define (default: flutter_map — no change)
+  #   To enable: uncomment the line below, then run `flutter pub get`
+  # maplibre_gl: ^0.27.0
+  #
+  # socket_io_client: ^3.1.6  (verified latest on pub.dev, Jun 2026)
+  #   Supports: Android ✅  iOS ✅  Web ✅  Windows ✅  macOS ✅  Linux ✅
+  #   Compatible with: Socket.IO server v4.7.* (our nodejs uses socket.io ^4.7.4)
+  #   Version table: dart client v3.* ↔ Socket.IO server v4.7.*~v4.*
+  #   Feature-flag: REALTIME_MODE=socketio dart-define (default: websocket — no change)
+  #   To enable: uncomment the line below, then run `flutter pub get`
+  # socket_io_client: ^3.1.6
+
+
 
 dev_dependencies:
   flutter_test:

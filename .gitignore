@@ -47,6 +47,18 @@ app.*.map.json
 /android/build/
 /android/flutter_gradle_tools/
 
+# Python
+backend/venv/
+backend/.venv/
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Node.js
+nodejs/node_modules/
+node_modules/
+
 # Secrets & Environment
 .env
 *.env
@@ -56,4 +68,3 @@ backend/secrets/
 *serviceAccountKey*.json
 
 *pdf
-docs/

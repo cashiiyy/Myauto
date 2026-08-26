@@ -1,8 +1,10 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # MyAuto Backend — Docker Compose
-# Services: backend, redis, postgres (PostGIS)
+# Services: backend (FastAPI), nodejs (Socket.IO), redis, postgres (PostGIS),
+#           valhalla (routing), photon (geocoding)
 # Redis and PostgreSQL are NEVER exposed on the host network.
-# Only the backend port 8919 is accessible from outside the Docker network.
+# Only the backend port 8919, nodejs port 3001, valhalla port 8002,
+# and photon port 2322 are accessible from outside the Docker network.
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
@@ -98,11 +100,134 @@ services:
       retries: 3
       start_period: 30s
 
+  # ── Node.js + Socket.IO Real-Time Server ─────────────────────────────────────
+  # Parallel real-time layer sharing the same PostgreSQL database as FastAPI.
+  # Enabled via --dart-define=REALTIME_MODE=socketio in Flutter.
+  nodejs:
+    build:
+      context: ../nodejs
+      dockerfile: Dockerfile
+    container_name: myauto_nodejs
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-myauto}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-myauto}
+      REDIS_URL: redis://redis:6379/0
+      FIREBASE_SERVICE_ACCOUNT_PATH: /app/secrets/serviceAccountKey.json
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-myauto-493fc}
+      PORT: 3001
+      APP_ENV: ${APP_ENV:-production}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      INITIAL_RADIUS_KM: ${INITIAL_RADIUS_KM:-2.0}
+      FALLBACK_RADIUS_KM: ${FALLBACK_RADIUS_KM:-5.0}
+      FRESHNESS_STALE_SECONDS: ${FRESHNESS_STALE_SECONDS:-30}
+    volumes:
+      - ./secrets/serviceAccountKey.json:/app/secrets/serviceAccountKey.json:ro
+    networks:
+      - backend_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ── Valhalla Routing Engine ───────────────────────────────────────────────────
+  # Open-source turn-by-turn routing engine.
+  #
+  # For DEVELOPMENT: Set VALHALLA_URL=https://valhalla1.openstreetmap.de in
+  # Flutter dart-define. This uses the free public Valhalla endpoint.
+  # This local container is NOT required for development.
+  #
+  # For PRODUCTION (self-hosted with Kerala OSM data):
+  #   Step 1 — Download Kerala OSM extract (Geofabrik):
+  #     curl -Lo ./valhalla/pbf/kerala-latest.osm.pbf \
+  #       https://download.geofabrik.de/asia/india/kerala-latest.osm.pbf
+  #
+  #   Step 2 — Build Valhalla tiles (one-time, takes 5-30 min):
+  #     docker compose run --rm valhalla bash -c \
+  #       "valhalla_build_tiles -c /valhalla.json /custom_files/kerala-latest.osm.pbf"
+  #
+  #   Step 3 — Start Valhalla:
+  #     docker compose up -d valhalla
+  #
+  #   Step 4 — Update Flutter dart-define:
+  #     --dart-define=VALHALLA_URL=http://<server-ip>:8002
+  #
+  # Tile volume at /custom_files is shared between tile-build and serving.
+  valhalla:
+    image: ghcr.io/valhalla/valhalla:latest
+    container_name: myauto_valhalla
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    volumes:
+      - valhalla_tiles:/custom_files
+    environment:
+      - use_tiles_ignore_pbf=True     # serve from pre-built tiles
+      - tile_extract=/custom_files/valhalla_tiles.tar  # optional tar extract
+    networks:
+      - backend_net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8002/status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ── Photon Geocoding ──────────────────────────────────────────────────────────
+  # Open-source geocoding based on OpenStreetMap data.
+  # Official image: komoot/photon  (NOT mediagis/photon)
+  #
+  # Volume path: /photon/data  (correct for komoot/photon image)
+  #
+  # SETUP (first run only):
+  #   Photon needs a pre-built Elasticsearch data directory.
+  #   Option A (Recommended for development):
+  #     Set PHOTON_URL=https://photon.komoot.io in Flutter dart-define.
+  #     The free public endpoint is rate-limited but suitable for development.
+  #     This container will not be started in dev.
+  #
+  #   Option B (Self-hosted production):
+  #     1. Download the India Photon data extract (~2GB):
+  #        https://download1.graphhopper.com/public/photon-db-latest.tar.bz2
+  #     2. Extract to ./photon_data/
+  #     3. Start the container: docker compose up -d photon
+  #
+  # Data directory structure expected inside container: /photon/data/
+  photon:
+    image: komoot/photon:latest
+    container_name: myauto_photon
+    restart: unless-stopped
+    ports:
+      - "2322:2322"
+    volumes:
+      - photon_data:/photon/data
+    command: ["-data-dir", "/photon/data", "-listen-ip", "0.0.0.0", "-listen-port", "2322"]
+    networks:
+      - backend_net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf 'http://localhost:2322/api?q=test&limit=1' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
 # ── Volumes ───────────────────────────────────────────────────────────────────
 volumes:
   postgres_data:
     driver: local
   redis_data:
+    driver: local
+  valhalla_tiles:
+    driver: local
+  photon_data:
     driver: local
 
 # ── Networks ──────────────────────────────────────────────────────────────────
@@ -110,3 +235,4 @@ networks:
   backend_net:
     driver: bridge
     internal: false   # backend can reach internet (for Firebase Admin SDK)
+

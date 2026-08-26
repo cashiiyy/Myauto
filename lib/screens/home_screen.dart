@@ -13,6 +13,7 @@ import '../models/nearby_driver_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/backend_client_provider.dart';
 import '../providers/backend_drivers_provider.dart';
+import '../providers/destination_provider.dart';
 import '../providers/location_provider.dart';
 import '../providers/ride_action_provider.dart';
 import '../providers/rtdb_provider.dart';
@@ -20,7 +21,9 @@ import '../providers/user_provider.dart';
 import '../providers/ws_event_router.dart';
 import '../providers/ws_provider.dart';
 import '../services/driver_location_service.dart';
+import '../services/map/map_abstraction.dart';
 import '../widgets/auto_details_sheet.dart';
+import '../widgets/destination_search_bar.dart';
 import 'activity_screen.dart';
 import 'profile_screen.dart';
 import '../models/user_model.dart';
@@ -271,18 +274,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             }
             final userLoc = LatLng(position.latitude, position.longitude);
 
+            // Read destination for the pin marker (passenger-only, additive)
+            final destination = ref.watch(destinationProvider);
+
             return GestureDetector(
               onTap: () { if (_selectedAuto != null) setState(() => _selectedAuto = null); },
-              child: FlutterMap(
+              child: MapAbstraction(
                 mapController: _mapController,
-                options: MapOptions(
-                  initialCenter: userLoc,
-                  initialZoom: 15.0,
-                  onTap: (_, __) => setState(() => _selectedAuto = null),
-                ),
+                initialCenter: userLoc,
+                initialZoom: 15.0,
+                onTap: (_, __) => setState(() => _selectedAuto = null),
                 children: [
                   TileLayer(
-                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    urlTemplate: AppConfig.tileUrl,
                     userAgentPackageName: 'com.myauto.com',
                   ),
                   MarkerLayer(markers: [
@@ -353,6 +357,37 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         ),
                       )).toList(),
                     ),
+
+                    // ── Destination pin marker (passenger-only, additive) ──
+                    // Appears when passenger selects a destination from search.
+                    // Does NOT trigger any booking or matching logic.
+                    if (role == 'passenger' && destination != null)
+                      Marker(
+                        point: LatLng(destination.latitude, destination.longitude),
+                        width: 48,
+                        height: 48,
+                        child: Tooltip(
+                          message: destination.displayLabel,
+                          child: Stack(alignment: Alignment.topCenter, children: [
+                            Container(
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF007AFF).withValues(alpha: 0.15),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: const Color(0xFF007AFF),
+                                  width: 2,
+                                ),
+                              ),
+                              width: 38,
+                              height: 38,
+                            ),
+                            const Positioned(
+                              top: 4,
+                              child: Text('📍', style: TextStyle(fontSize: 22)),
+                            ),
+                          ]),
+                        ),
+                      ),
                   ]),
                 ],
               ),
@@ -362,6 +397,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
         // ── FABs ──────────────────────────────────────────────────────────
         if (_currentIndex == 0) ...[
+
+          // ── Destination search bar (passengers only — additive) ─────────
+          // Positioned at top of map, above connection banner, below FABs.
+          // Hidden for drivers. Does not affect booking or ride logic.
+          if (role == 'passenger')
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 10,
+              left: 0, right: 0,
+              child: const DestinationSearchBar(),
+            ),
           // Backend poll error indicator
           if (ref.watch(backendDriversProvider).error != null)
             Positioned(
@@ -371,7 +416,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
 
           Positioned(
-            top: MediaQuery.of(context).padding.top + 20, right: 20,
+            // Shift down for passengers (search bar occupies ~62px at top)
+            top: MediaQuery.of(context).padding.top + (role == 'passenger' ? 72 : 20),
+            right: 20,
             child: FloatingActionButton(
               heroTag: 'refresh',
               backgroundColor: const Color(0xFFFFDDBA).withValues(alpha: 0.9),
@@ -381,7 +428,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           ),
           Positioned(
-            top: MediaQuery.of(context).padding.top + 70, right: 20,
+            top: MediaQuery.of(context).padding.top + (role == 'passenger' ? 122 : 70),
+            right: 20,
             child: FloatingActionButton(
               heroTag: 'locate',
               backgroundColor: const Color(0xFFD0E4FF).withValues(alpha: 0.9),

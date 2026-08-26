@@ -65,13 +65,20 @@ class PhotonService(GeocodingService):
             params["lat"] = lat
             params["lon"] = lon
 
-        url = f"{self.base_url}/api"
+        settings = get_settings()
+        base_url = self.base_url or settings.photon_url.rstrip("/")
+        url = f"{base_url}/api"
+
+        headers = {
+            "User-Agent": "MyAuto/1.0 (FastAPI Backend; myauto.app)",
+            "Accept": "application/json",
+        }
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.get(url, params=params)
+            async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
+                response = await client.get(url, params=params, headers=headers)
                 if response.status_code != 200:
-                    logger.warning("Photon returned non-200 status: %s", response.status_code)
+                    logger.warning("Photon returned non-200 status: %s for url: %s", response.status_code, url)
                     return []
 
                 data = response.json()

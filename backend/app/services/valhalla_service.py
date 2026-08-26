@@ -51,7 +51,8 @@ class ValhallaService(RoutingService):
         to_lon: float,
         costing: str = "auto",
     ) -> Optional[Dict[str, Any]]:
-        if not self.enabled:
+        settings = get_settings()
+        if not settings.enable_valhalla:
             logger.debug("Valhalla routing is disabled via ENABLE_VALHALLA flag.")
             return None
 
@@ -64,11 +65,18 @@ class ValhallaService(RoutingService):
             "directions_options": {"units": "kilometres"},
         }
 
-        url = f"{self.base_url}/route"
+        base_url = self.base_url or settings.valhalla_url.rstrip("/")
+        url = f"{base_url}/route"
+
+        headers = {
+            "User-Agent": "MyAuto/1.0 (FastAPI Backend; myauto.app)",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(url, json=payload)
+            async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
+                response = await client.post(url, json=payload, headers=headers)
                 if response.status_code != 200:
                     logger.warning("Valhalla returned non-200 status: %s", response.status_code)
                     return None

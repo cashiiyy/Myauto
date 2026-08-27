@@ -143,6 +143,7 @@ class PhotonService {
 
     final myGeneration = ++_generation;
 
+    try {
       final queryParams = <String, dynamic>{
         'q': trimmed,
         'limit': AppConfig.photonMaxResults,

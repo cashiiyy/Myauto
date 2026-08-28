@@ -6,7 +6,7 @@ import '../../config/app_config.dart';
 
 // ── Result model ──────────────────────────────────────────────────────────────
 
-/// A single geocoding result from the Photon API.
+/// A single geocoding result from the backend geocoding proxy / Photon API.
 class PhotonResult {
   final String displayLabel;
   final String placeName;
@@ -26,9 +26,27 @@ class PhotonResult {
     this.country,
   });
 
-  factory PhotonResult.fromFeature(Map<String, dynamic> feature) {
-    final props = feature['properties'] as Map<String, dynamic>? ?? {};
-    final geometry = feature['geometry'] as Map<String, dynamic>? ?? {};
+  factory PhotonResult.fromJson(Map<String, dynamic> json) {
+    // Check if it's the backend proxy format
+    if (json.containsKey('display_name') || json.containsKey('latitude')) {
+      final name = json['name'] as String? ?? '';
+      final displayName = json['display_name'] as String? ?? name;
+      final lat = (json['latitude'] as num?)?.toDouble() ?? 0.0;
+      final lon = (json['longitude'] as num?)?.toDouble() ?? 0.0;
+      return PhotonResult(
+        displayLabel: displayName.isNotEmpty ? displayName : name,
+        placeName: name.isNotEmpty ? name : displayName,
+        latitude: lat,
+        longitude: lon,
+        city: json['city'] as String?,
+        state: json['state'] as String?,
+        country: json['country'] as String?,
+      );
+    }
+
+    // GeoJSON Feature format
+    final props = json['properties'] as Map<String, dynamic>? ?? {};
+    final geometry = json['geometry'] as Map<String, dynamic>? ?? {};
     final coords = geometry['coordinates'] as List<dynamic>? ?? [];
 
     final name = props['name'] as String? ?? '';
@@ -36,7 +54,6 @@ class PhotonResult {
     final state = props['state'] as String?;
     final country = props['country'] as String?;
 
-    // Build a human-readable label from available parts
     final parts = <String>[
       if (name.isNotEmpty) name,
       if (city != null && city != name) city,
@@ -54,6 +71,9 @@ class PhotonResult {
       country: country,
     );
   }
+
+  factory PhotonResult.fromFeature(Map<String, dynamic> feature) =>
+      PhotonResult.fromJson(feature);
 
   @override
   String toString() =>
@@ -74,7 +94,7 @@ class _CacheEntry {
 
 // ── Service ───────────────────────────────────────────────────────────────────
 
-/// Provides destination autocomplete using the Photon geocoding API.
+/// Provides destination autocomplete proxying through the backend API.
 ///
 /// Features:
 /// - 300ms debounce (configurable via [AppConfig.photonDebounceMs])
@@ -82,26 +102,16 @@ class _CacheEntry {
 /// - Request cancellation via generation counter
 /// - Kerala/Kollam geographic bias
 /// - Never throws to the caller — returns empty list on error
-/// - Never exposes the server URL in UI code
-///
-/// Used exclusively by [DestinationSearchBar] for the passenger destination
-/// search feature. Does NOT interact with any ride, booking, or matching logic.
 class PhotonService {
   late final Dio _dio;
 
-  // Request generation counter — incremented on each new search.
-  // If a response arrives for an older generation, it is discarded.
   int _generation = 0;
-
-  // Debounce timer
   Timer? _debounceTimer;
-
-  // Simple in-memory cache
   final Map<String, _CacheEntry> _cache = {};
 
   PhotonService() {
     _dio = Dio(BaseOptions(
-      baseUrl: AppConfig.photonUrl,
+      baseUrl: AppConfig.backendUrl,
       connectTimeout: const Duration(seconds: 8),
       receiveTimeout: const Duration(seconds: 10),
       headers: {
@@ -122,11 +132,6 @@ class PhotonService {
   // ── Public API ────────────────────────────────────────────────────────────
 
   /// Search for places matching [query].
-  ///
-  /// Returns up to [AppConfig.photonMaxResults] results.
-  /// Returns an empty list on network errors, empty input, or no results.
-  ///
-  /// Results are biased toward the Kerala/Kollam region.
   Future<List<PhotonResult>> search(
     String query, {
     LatLng? nearLocation,
@@ -147,41 +152,44 @@ class PhotonService {
       final queryParams = <String, dynamic>{
         'q': trimmed,
         'limit': AppConfig.photonMaxResults,
-        // Configurable bounding box bias via AppConfig.photonBbox
         'bbox': AppConfig.photonBbox,
-        'lang': 'en',
       };
 
-      // Add location bias if provided
       if (nearLocation != null) {
         queryParams['lon'] = nearLocation.longitude;
         queryParams['lat'] = nearLocation.latitude;
       }
 
-      final response = await _dio.get('/api', queryParameters: queryParams);
+      // Route through backend geocode proxy
+      final response = await _dio.get('/api/geocode/search', queryParameters: queryParams);
 
-      // Discard stale response
       if (myGeneration != _generation) {
         debugPrint('[Photon] Stale response discarded (gen=$myGeneration)');
         return [];
       }
 
-      final data = response.data as Map<String, dynamic>?;
-      final features = data?['features'] as List<dynamic>? ?? [];
+      List<PhotonResult> results = [];
+      if (response.data is List) {
+        results = (response.data as List<dynamic>)
+            .whereType<Map<String, dynamic>>()
+            .map((item) => PhotonResult.fromJson(item))
+            .where((r) => r.displayLabel.isNotEmpty)
+            .toList();
+      } else if (response.data is Map) {
+        final data = response.data as Map<String, dynamic>;
+        final features = data['features'] as List<dynamic>? ?? [];
+        results = features
+            .whereType<Map<String, dynamic>>()
+            .map((f) => PhotonResult.fromJson(f))
+            .where((r) => r.displayLabel.isNotEmpty)
+            .toList();
+      }
 
-      final results = features
-          .whereType<Map<String, dynamic>>()
-          .map((f) => PhotonResult.fromFeature(f))
-          .where((r) => r.displayLabel.isNotEmpty)
-          .toList();
-
-      // Cache results
       _cache[trimmed] = _CacheEntry(results);
-
       debugPrint('[Photon] "$trimmed" → ${results.length} results');
       return results;
     } on DioException catch (e) {
-      debugPrint('[Photon] Network error for "$trimmed": ${e.message}');
+      debugPrint('[Photon] Backend geocode error for "$trimmed": ${e.message}');
       return [];
     } catch (e) {
       debugPrint('[Photon] Unexpected error for "$trimmed": $e');
@@ -193,7 +201,7 @@ class PhotonService {
   void cancelPendingSearch() {
     _debounceTimer?.cancel();
     _debounceTimer = null;
-    _generation++; // invalidate any in-flight request
+    _generation++;
   }
 
   /// Dispose the service and free resources.
@@ -201,8 +209,6 @@ class PhotonService {
     _debounceTimer?.cancel();
     _dio.close();
   }
-
-  // ── Cache management ──────────────────────────────────────────────────────
 
   /// Remove all expired cache entries.
   void pruneCache() {
@@ -215,6 +221,4 @@ class PhotonService {
 
 // ── Provider-friendly singleton factory ───────────────────────────────────────
 
-/// Creates a [PhotonService] instance suitable for use with Riverpod.
-/// Call [PhotonService.dispose] in the provider's onDispose callback.
 PhotonService createPhotonService() => PhotonService();

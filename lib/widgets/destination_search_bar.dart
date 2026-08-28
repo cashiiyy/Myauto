@@ -48,7 +48,6 @@ class _DestinationSearchBarState extends ConsumerState<DestinationSearchBar> {
   final TextEditingController _textController = TextEditingController();
   final FocusNode _focusNode = FocusNode();
   Timer? _debounceTimer;
-  bool _overlayOpen = false;
   final LayerLink _layerLink = LayerLink();
   OverlayEntry? _overlayEntry;
 
@@ -93,7 +92,7 @@ class _DestinationSearchBarState extends ConsumerState<DestinationSearchBar> {
     ref.read(_hasErrorProvider.notifier).state = false;
 
     _debounceTimer = Timer(
-      Duration(milliseconds: AppConfig.photonDebounceMs),
+      const Duration(milliseconds: AppConfig.photonDebounceMs),
       () => _doSearch(query.trim()),
     );
   }
@@ -149,13 +148,11 @@ class _DestinationSearchBarState extends ConsumerState<DestinationSearchBar> {
     final overlay = Overlay.of(context);
     _overlayEntry = OverlayEntry(builder: (_) => _buildOverlay());
     overlay.insert(_overlayEntry!);
-    setState(() => _overlayOpen = true);
   }
 
   void _removeOverlay() {
     _overlayEntry?.remove();
     _overlayEntry = null;
-    if (mounted) setState(() => _overlayOpen = false);
   }
 
   // ── Build ──────────────────────────────────────────────────────────────────

@@ -72,7 +72,39 @@ class ProfileScreen extends ConsumerWidget {
                     user.role == 'driver' ? 'Driver Mode' : 'Passenger Mode',
                     style: GoogleFonts.abel(fontSize: 16, color: Colors.grey[500]),
                   ),
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    icon: Icon(user.role == 'driver' ? Icons.person_outline : Icons.local_taxi_outlined, size: 18),
+                    label: Text(
+                      user.role == 'driver' ? 'Switch to Passenger Mode' : 'Switch to Driver Mode',
+                      style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 14),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: user.role == 'driver' ? const Color(0xFF007AFF) : const Color(0xFFFF9500),
+                      side: BorderSide(
+                        color: user.role == 'driver' ? const Color(0xFF007AFF) : const Color(0xFFFF9500),
+                        width: 1.5,
+                      ),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    ),
+                    onPressed: () async {
+                      final newRole = user.role == 'driver' ? 'passenger' : 'driver';
+                      final updatedUser = user.copyWith(role: newRole);
+                      await ref.read(authControllerProvider.notifier).createUserDocument(updatedUser);
+                      ref.read(localSessionProvider.notifier).state = updatedUser;
+                      ref.invalidate(currentUserProvider);
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Switched to ${newRole == 'driver' ? "Driver" : "Passenger"} Mode!'),
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 24),
 
               _buildMenuCard(context, 'Edit Profile', 'assets/images/Frame 10.png', () {
                 Navigator.push(context, MaterialPageRoute(builder: (_) => EditProfileScreen(user: user)));

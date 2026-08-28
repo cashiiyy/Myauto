@@ -29,7 +29,13 @@ class RideRepository:
         pickup_lon: float,
         dropoff_lat: Optional[float] = None,
         dropoff_lon: Optional[float] = None,
+        destination_label: Optional[str] = None,
+        selected_driver_uid: Optional[str] = None,
+        passenger_name: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
         notes: Optional[str] = None,
+        ride_id: Optional[uuid.UUID] = None,
+        request_expires_at: Optional[datetime] = None,
     ) -> Optional[Ride]:
         if not self.session:
             return None
@@ -42,12 +48,19 @@ class RideRepository:
         )
 
         ride = Ride(
-            id=uuid.uuid4(),
+            id=ride_id or uuid.uuid4(),
             passenger_uid=passenger_uid,
             pickup_location=pickup_geom,
             dropoff_location=dropoff_geom,
+            dropoff_lat=dropoff_lat,
+            dropoff_lng=dropoff_lon,
+            destination_label=destination_label,
+            selected_driver_uid=selected_driver_uid,
+            passenger_name=passenger_name,
+            idempotency_key=idempotency_key,
             status="requested",
             notes=notes,
+            request_expires_at=request_expires_at,
         )
         self.session.add(ride)
         await self.session.flush()
@@ -60,11 +73,20 @@ class RideRepository:
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_by_idempotency_key(self, idempotency_key: str) -> Optional[Ride]:
+        if not self.session or not idempotency_key:
+            return None
+        stmt = select(Ride).where(Ride.idempotency_key == idempotency_key)
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def update_status(
         self,
         ride_id: uuid.UUID,
         status: str,
         driver_uid: Optional[str] = None,
+        cancelled_by: Optional[str] = None,
+        cancel_reason: Optional[str] = None,
     ) -> Optional[Ride]:
         if not self.session:
             return None
@@ -74,6 +96,10 @@ class RideRepository:
             ride.status = status
             if driver_uid:
                 ride.driver_uid = driver_uid
+            if cancelled_by:
+                ride.cancelled_by = cancelled_by
+            if cancel_reason:
+                ride.cancel_reason = cancel_reason
             ride.updated_at = datetime.now(timezone.utc)
             await self.session.flush()
         return ride

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,6 +18,7 @@ import '../providers/destination_provider.dart';
 import '../providers/location_provider.dart';
 import '../providers/ride_action_provider.dart';
 import '../providers/rtdb_provider.dart';
+import '../providers/selected_driver_provider.dart';
 import '../providers/user_provider.dart';
 import '../providers/ws_event_router.dart';
 import '../providers/ws_provider.dart';
@@ -79,14 +81,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   /// Select a backend-sourced NearbyDriverModel
   void _selectFromNearbyDriver(NearbyDriverModel d, dynamic position) {
+    ref.read(selectedDriverProvider.notifier).state = d;
     final auto = AutoModel(
       id: d.driverUid,
       latitude: d.latitude,
       longitude: d.longitude,
       isAvailable: d.isAvailable,
-      driverName: 'Driver',    // Backend does not return name (privacy)
+      driverName: 'Auto Driver',    // Backend does not return name at discovery (privacy)
       phoneNumber: '',         // Phone number NEVER returned by nearby endpoint
-      vehicleNumber: '',
+      vehicleNumber: 'KL Auto',
       rating: d.rating ?? 5.0,
     );
     _selectAuto(auto, position);
@@ -120,11 +123,42 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     if (await canLaunchUrl(url)) launchUrl(url);
   }
 
+  void _toggleRole(UserModel? user) async {
+    final currentRole = user?.role ?? 
+        (ref.read(userProfileProvider).profileMode.toLowerCase().contains('driver') ? 'driver' : 'passenger');
+    final newRole = currentRole == 'driver' ? 'passenger' : 'driver';
+
+    if (user != null) {
+      final updatedUser = user.copyWith(role: newRole);
+      await ref.read(authControllerProvider.notifier).createUserDocument(updatedUser);
+      ref.read(localSessionProvider.notifier).state = updatedUser;
+    }
+    ref.read(userProfileProvider.notifier).updateProfileMode(
+      newRole == 'driver' ? 'Driver mode' : 'Passenger mode',
+    );
+    ref.invalidate(currentUserProvider);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Switched to ${newRole == 'driver' ? "Driver" : "Passenger"} Mode!'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
   // ── Driver Accept/Reject Sheet ─────────────────────────────────────────────
 
   void _showRideRequestSheet(BackendEvent event) {
     final pickupLat = (event.payload['pickup_lat'] as num?)?.toDouble();
     final pickupLng = (event.payload['pickup_lng'] as num?)?.toDouble();
+    final destinationLat = (event.payload['destination_lat'] as num?)?.toDouble();
+    final destinationLng = (event.payload['destination_lng'] as num?)?.toDouble();
+    final destinationLabel = event.payload['destination_label'] as String?;
+    final passengerName = event.payload['passenger_name'] as String? ?? 'Passenger';
+    final approxDistanceKm = (event.payload['approx_distance_km'] as num?)?.toDouble();
+    final estimatedDurationMin = (event.payload['estimated_duration_min'] as num?)?.toInt();
+    final expiresAtStr = event.payload['expires_at'] as String?;
     final matchId = event.payload['match_id'] as String? ?? event.rideId ?? '';
     final notes = event.payload['notes'] as String?;
 
@@ -137,6 +171,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         matchId: matchId,
         pickupLat: pickupLat,
         pickupLng: pickupLng,
+        destinationLat: destinationLat,
+        destinationLng: destinationLng,
+        destinationLabel: destinationLabel,
+        passengerName: passengerName,
+        approxDistanceKm: approxDistanceKm,
+        estimatedDurationMin: estimatedDurationMin,
+        expiresAt: expiresAtStr != null ? DateTime.tryParse(expiresAtStr) : null,
         notes: notes,
         onAccept: () async {
           final ctrl = ref.read(rideActionControllerProvider.notifier);
@@ -254,8 +295,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Widget _buildMapTab() {
     final locationAsync = ref.watch(currentLocationProvider);
-    final role = ref.watch(currentUserProvider).value?.role ?? 'passenger';
-    final rideAction = ref.watch(rideActionControllerProvider);
+    final currentUser = ref.watch(currentUserProvider).value;
+    final profileMode = ref.watch(userProfileProvider).profileMode;
+    final role = currentUser?.role ?? 
+        (profileMode.toLowerCase().contains('driver') ? 'driver' : 'passenger');
 
     // ── Backend driver state (primary) ─────────────────────────────────────
     final backendDriversState = ref.watch(backendDriversProvider);
@@ -401,12 +444,54 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           // ── Destination search bar (passengers only — additive) ─────────
           // Positioned at top of map, above connection banner, below FABs.
           // Hidden for drivers. Does not affect booking or ride logic.
-          if (role == 'passenger')
+          if (role == 'passenger') ...[
             Positioned(
               top: MediaQuery.of(context).padding.top + 10,
               left: 0, right: 0,
               child: const DestinationSearchBar(),
             ),
+          ] else ...[
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 16,
+              left: 20,
+              child: InkWell(
+                onTap: () => _toggleRole(currentUser),
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.15),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                    border: Border.all(color: const Color(0xFFFF9500), width: 1.5),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('🚖', style: TextStyle(fontSize: 16)),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Driver Mode (Tap to Switch)',
+                        style: GoogleFonts.inter(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: const Color(0xFFFF9500),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      const Icon(Icons.swap_horiz, size: 16, color: Color(0xFFFF9500)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
           // Backend poll error indicator
           if (ref.watch(backendDriversProvider).error != null)
             Positioned(
@@ -641,10 +726,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 // Driver Accept/Reject Bottom Sheet
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _RideRequestSheet extends StatelessWidget {
+// Driver Accept/Reject Bottom Sheet
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _RideRequestSheet extends StatefulWidget {
   final String matchId;
   final double? pickupLat;
   final double? pickupLng;
+  final double? destinationLat;
+  final double? destinationLng;
+  final String? destinationLabel;
+  final String passengerName;
+  final double? approxDistanceKm;
+  final int? estimatedDurationMin;
+  final DateTime? expiresAt;
   final String? notes;
   final VoidCallback onAccept;
   final VoidCallback onReject;
@@ -653,14 +748,54 @@ class _RideRequestSheet extends StatelessWidget {
     required this.matchId,
     this.pickupLat,
     this.pickupLng,
+    this.destinationLat,
+    this.destinationLng,
+    this.destinationLabel,
+    required this.passengerName,
+    this.approxDistanceKm,
+    this.estimatedDurationMin,
+    this.expiresAt,
     this.notes,
     required this.onAccept,
     required this.onReject,
   });
 
   @override
+  State<_RideRequestSheet> createState() => _RideRequestSheetState();
+}
+
+class _RideRequestSheetState extends State<_RideRequestSheet> {
+  int _secondsRemaining = 30;
+  Timer? _countdownTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.expiresAt != null) {
+      final diff = widget.expiresAt!.difference(DateTime.now()).inSeconds;
+      _secondsRemaining = diff > 0 ? diff : 0;
+    }
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
+      if (_secondsRemaining > 1) {
+        setState(() => _secondsRemaining--);
+      } else {
+        setState(() => _secondsRemaining = 0);
+        timer.cancel();
+        widget.onReject();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _countdownTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final hasCoords = pickupLat != null && pickupLng != null;
+    final hasCoords = widget.pickupLat != null && widget.pickupLng != null;
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
       child: BackdropFilter(
@@ -668,7 +803,7 @@ class _RideRequestSheet extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.95),
+            color: Colors.white.withValues(alpha: 0.96),
             borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
             boxShadow: [
               BoxShadow(
@@ -683,14 +818,14 @@ class _RideRequestSheet extends StatelessWidget {
               // Handle
               Container(
                 width: 40, height: 4,
-                margin: const EdgeInsets.only(bottom: 20),
+                margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(
                   color: Colors.grey.shade300,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
 
-              // Header
+              // Header + Countdown Chip
               Row(
                 children: [
                   Container(
@@ -701,53 +836,116 @@ class _RideRequestSheet extends StatelessWidget {
                     ),
                     child: const Center(child: Text('🧍', style: TextStyle(fontSize: 26))),
                   ),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: 14),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Incoming Ride Request',
+                        Text(widget.passengerName,
                             style: GoogleFonts.inter(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
                                 color: Colors.black87)),
-                        const SizedBox(height: 4),
-                        Text('A passenger needs a ride',
+                        const SizedBox(height: 2),
+                        Text('Requested a ride',
                             style: GoogleFonts.inter(
                                 fontSize: 13, color: Colors.grey.shade600)),
+                      ],
+                    ),
+                  ),
+                  // Expiry countdown chip
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: _secondsRemaining <= 10 ? Colors.red.shade50 : Colors.amber.shade50,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: _secondsRemaining <= 10 ? Colors.red.shade200 : Colors.amber.shade300,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.timer_outlined,
+                            size: 14,
+                            color: _secondsRemaining <= 10 ? Colors.red.shade700 : Colors.amber.shade800),
+                        const SizedBox(width: 4),
+                        Text('${_secondsRemaining}s',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: _secondsRemaining <= 10 ? Colors.red.shade700 : Colors.amber.shade900,
+                            )),
                       ],
                     ),
                   ),
                 ],
               ),
 
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
 
-              // Pickup info
-              if (hasCoords)
-                _InfoRow(
-                  icon: Icons.location_on_outlined,
-                  label: 'Pickup',
-                  value:
-                      '${pickupLat!.toStringAsFixed(5)}, ${pickupLng!.toStringAsFixed(5)}',
+              // Trip details card
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.grey.shade200),
                 ),
-              if (notes != null && notes!.isNotEmpty) ...[
-                const SizedBox(height: 8),
+                child: Column(
+                  children: [
+                    if (hasCoords)
+                      _InfoRow(
+                        icon: Icons.my_location,
+                        iconColor: Colors.blue,
+                        label: 'Pickup',
+                        value: '${widget.pickupLat!.toStringAsFixed(5)}, ${widget.pickupLng!.toStringAsFixed(5)}',
+                      ),
+                    if (widget.destinationLabel != null) ...[
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 6),
+                        child: Divider(height: 1),
+                      ),
+                      _InfoRow(
+                        icon: Icons.flag,
+                        iconColor: Colors.deepOrange,
+                        label: 'Destination',
+                        value: widget.destinationLabel!,
+                      ),
+                    ],
+                    if (widget.approxDistanceKm != null) ...[
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 6),
+                        child: Divider(height: 1),
+                      ),
+                      _InfoRow(
+                        icon: Icons.route_outlined,
+                        iconColor: Colors.purple,
+                        label: 'Estimated Trip',
+                        value: '${widget.approxDistanceKm} km (${widget.estimatedDurationMin ?? 5} mins)',
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
+              if (widget.notes != null && widget.notes!.isNotEmpty) ...[
+                const SizedBox(height: 10),
                 _InfoRow(
                   icon: Icons.notes_outlined,
-                  label: 'Note',
-                  value: notes!,
+                  label: 'Passenger Note',
+                  value: widget.notes!,
                 ),
               ],
 
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
 
               // Accept / Reject buttons
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: onReject,
+                      onPressed: widget.onReject,
                       icon: const Icon(Icons.close, color: Colors.red),
                       label: Text('Decline',
                           style: GoogleFonts.inter(
@@ -764,7 +962,7 @@ class _RideRequestSheet extends StatelessWidget {
                   Expanded(
                     flex: 2,
                     child: ElevatedButton.icon(
-                      onPressed: onAccept,
+                      onPressed: widget.onAccept,
                       icon: const Icon(Icons.check, color: Colors.white),
                       label: Text('Accept Ride',
                           style: GoogleFonts.inter(
@@ -790,17 +988,23 @@ class _RideRequestSheet extends StatelessWidget {
 
 class _InfoRow extends StatelessWidget {
   final IconData icon;
+  final Color? iconColor;
   final String label;
   final String value;
 
-  const _InfoRow({required this.icon, required this.label, required this.value});
+  const _InfoRow({
+    required this.icon,
+    this.iconColor,
+    required this.label,
+    required this.value,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 18, color: Colors.grey.shade600),
+        Icon(icon, size: 18, color: iconColor ?? Colors.grey.shade600),
         const SizedBox(width: 10),
         Expanded(
           child: RichText(

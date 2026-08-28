@@ -160,24 +160,47 @@ class BackendApiClient {
     double pickupLat,
     double pickupLng, {
     double? pickupAccuracyMeters,
+    double? destinationLat,
+    double? destinationLng,
+    String? destinationLabel,
+    String? driverUid,
+    String? passengerName,
+    String? idempotencyKey,
     String? notes,
   }) async {
     if (AppConfig.mockMode) {
-      return const RideRequestResult(
+      return RideRequestResult(
         requestId: 'mock-request-id',
         status: 'matching',
         message: 'Mock: match found.',
-        driverUid: 'mock_driver',
+        driverUid: driverUid ?? 'mock_driver',
       );
     }
     try {
-      final resp = await _dio.post('/api/rides/requests', data: {
+      final headers = <String, dynamic>{};
+      if (idempotencyKey != null) {
+        headers['Idempotency-Key'] = idempotencyKey;
+      }
+
+      final body = <String, dynamic>{
         'pickup_lat': pickupLat,
         'pickup_lng': pickupLng,
         if (pickupAccuracyMeters != null)
           'pickup_accuracy_meters': pickupAccuracyMeters,
+        if (destinationLat != null) 'destination_lat': destinationLat,
+        if (destinationLng != null) 'destination_lng': destinationLng,
+        if (destinationLabel != null) 'destination_label': destinationLabel,
+        if (driverUid != null) 'driver_uid': driverUid,
+        if (passengerName != null) 'passenger_name': passengerName,
+        if (idempotencyKey != null) 'idempotency_key': idempotencyKey,
         if (notes != null) 'notes': notes,
-      });
+      };
+
+      final resp = await _dio.post(
+        '/api/rides/requests',
+        data: body,
+        options: Options(headers: headers),
+      );
       return RideRequestResult.fromJson(resp.data as Map<String, dynamic>);
     } on DioException catch (e) {
       _handleDioException(e);

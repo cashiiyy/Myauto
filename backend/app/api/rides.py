@@ -5,18 +5,19 @@ Rides API
 Endpoints for the full ride lifecycle:
 
   POST /api/rides/requests          — create a ride request (passenger)
-  POST /api/rides/{ride_id}/cancel  — cancel a ride request
-  POST /api/rides/{ride_id}/complete — mark a ride as complete
-  POST /api/rides/{ride_id}/sos     — trigger an SOS alert
+  POST /api/rides/requests/{ride_id}/cancel  — cancel a ride request
+  POST /api/rides/requests/{ride_id}/complete — mark a ride as complete
+  POST /api/rides/requests/{ride_id}/sos     — trigger an SOS alert
 """
 
 from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from uuid import uuid4
+from uuid import UUID, uuid4
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 import redis.asyncio as aioredis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +25,7 @@ from app.auth.firebase_auth import VerifiedToken, get_current_user
 from app.redis.client import get_redis
 from app.redis.keys import RedisKeys
 from app.database.connection import get_db
+from app.repositories.ride_repository import RideRepository
 from app.schemas.ride import (
     CreateRideRequest,
     RideRequestResponse,
@@ -43,18 +45,23 @@ router = APIRouter(prefix="/api/rides", tags=["Rides"])
 async def request_ride(
     request: CreateRideRequest,
     user: VerifiedToken = Depends(get_current_user),
+    idempotency_header: Optional[str] = Header(None, alias="Idempotency-Key"),
     redis: aioredis.Redis = Depends(get_redis),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Passenger creates a ride request.
-    The matching engine finds and atomically reserves the nearest eligible driver.
+    Supports idempotency, destination coordinates, target driver booking, and atomic locking.
     """
+    if idempotency_header and not request.idempotency_key:
+        request.idempotency_key = idempotency_header
+
     result = await create_ride_request(db, redis, request, user.uid)
     return RideRequestResponse(
         request_id=result["request_id"],
         status=result["status"],
         message=result["message"],
+        driver_uid=result.get("driver_uid"),
         created_at=datetime.now(timezone.utc),
     )
 
@@ -74,7 +81,7 @@ async def cancel_ride(
     session_key = RedisKeys.ride_session(ride_id)
     session = await redis.hgetall(session_key)
 
-    if session and session.get("passenger_uid") != user.uid:
+    if session and session.get("passenger_uid") and session.get("passenger_uid") != user.uid:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You are not authorized to cancel this ride.",
@@ -94,6 +101,20 @@ async def cancel_ride(
 
     # Clean up session
     await redis.delete(session_key)
+
+    # Update DB status
+    try:
+        ride_repo = RideRepository(db)
+        await ride_repo.update_status(
+            ride_id=UUID(ride_id),
+            status="cancelled",
+            cancelled_by="passenger",
+            cancel_reason="Cancelled by passenger request",
+        )
+        await db.commit()
+    except Exception as e:
+        logger.debug("DB cancel update ignored: %s", e)
+        await db.rollback()
 
     # Notify driver via WebSocket
     if driver_uid:
@@ -118,7 +139,7 @@ async def complete_ride(
 ):
     """
     Mark an active ride as completed.
-    Transitions the driver back to AVAILABLE.
+    Transitions the driver back to AVAILABLE and updates PostgreSQL.
     """
     session_key = RedisKeys.ride_session(ride_id)
     session = await redis.hgetall(session_key)
@@ -127,11 +148,12 @@ async def complete_ride(
     passenger_uid = session.get("passenger_uid") if session else None
 
     # Authorization: only the driver or passenger in this ride may complete it
-    if user.uid not in (driver_uid, passenger_uid):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You are not part of this ride.",
-        )
+    if session and (driver_uid or passenger_uid):
+        if user.uid not in (driver_uid, passenger_uid):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You are not part of this ride.",
+            )
 
     # Transition driver back to AVAILABLE
     if driver_uid:
@@ -142,6 +164,19 @@ async def complete_ride(
     # Update session state
     if session:
         await redis.hset(session_key, "state", "COMPLETED")
+
+    # Update DB status
+    try:
+        ride_repo = RideRepository(db)
+        await ride_repo.update_status(
+            ride_id=UUID(ride_id),
+            status="completed",
+            driver_uid=driver_uid,
+        )
+        await db.commit()
+    except Exception as e:
+        logger.debug("DB complete update ignored: %s", e)
+        await db.rollback()
 
     # Notify both parties via WebSocket
     from app.schemas.event import WebSocketEvent, EventType
@@ -174,15 +209,8 @@ async def trigger_sos(
     session_key = RedisKeys.ride_session(ride_id)
     session = await redis.hgetall(session_key)
 
-    # Authorization: must be a participant in the ride
     driver_uid = session.get("driver_uid") if session else None
     passenger_uid = session.get("passenger_uid") if session else None
-
-    if user.uid not in (driver_uid, passenger_uid, user.uid):  # allow any auth'd user for safety
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You are not part of this ride.",
-        )
 
     from app.schemas.event import WebSocketEvent, EventType
     event = WebSocketEvent(

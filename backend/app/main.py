@@ -32,10 +32,12 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     logger.info("Starting up MyAuto backend (env: %s, port: %d)...", settings.app_env, settings.app_port)
 
-    # 1. Optional Redis connection
+    # 1. Optional Redis connection & PubSub listener
     try:
         from app.redis.client import init_redis
         await init_redis()
+        from app.websocket.manager import manager
+        await manager.start_pubsub_listener()
     except Exception as e:
         logger.warning("Redis initialization skipped or failed (safe fallback active): %s", e)
 
@@ -49,8 +51,10 @@ async def lifespan(app: FastAPI):
 
     logger.info("Shutting down MyAuto backend...")
 
-    # 3. Cleanup Redis
+    # 3. Cleanup Redis & PubSub listener
     try:
+        from app.websocket.manager import manager
+        await manager.stop_pubsub_listener()
         from app.redis.client import close_redis
         await close_redis()
     except Exception as e:

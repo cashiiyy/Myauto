@@ -64,36 +64,18 @@ final backendEventsProvider = StreamProvider<BackendEvent>((ref) {
 // REALTIME_MODE=mock:
 //   Returns a MockRealtimeAdapter that emits no events.
 
-/// The active [RealtimeAdapter], or null when using the default WebSocket path.
-///
-/// When null, all providers continue to use [wsClientProvider] as before.
-/// When non-null, consumers can subscribe to [RealtimeAdapter.events] for
-/// Socket.IO or mock events.
-final realtimeAdapterProvider = Provider<RealtimeAdapter?>((ref) {
+/// The active [RealtimeAdapter].
+final realtimeAdapterProvider = Provider<RealtimeAdapter>((ref) {
   final adapter = createRealtimeAdapter();
-  if (adapter != null) {
-    ref.onDispose(adapter.dispose);
-    // Connect after the first frame to avoid build-phase side-effects
-    Future.microtask(() => adapter.connect());
-  }
+  ref.onDispose(adapter.dispose);
+  // Connect after the first frame to avoid build-phase side-effects
+  Future.microtask(() => adapter.connect());
   return adapter;
 });
 
-/// Unified backend events stream — merges [backendEventsProvider] (WebSocket)
-/// with the active [realtimeAdapterProvider] (Socket.IO / mock) events.
-///
-/// Existing consumers of [backendEventsProvider] are unaffected — they still
-/// receive WebSocket events. New consumers can use this merged provider to
-/// receive events from whichever transport is active.
+/// Unified backend events stream.
 final mergedBackendEventsProvider = StreamProvider<BackendEvent>((ref) {
   final adapter = ref.watch(realtimeAdapterProvider);
-
-  // Default path: existing WebSocket events only
-  if (adapter == null) {
-    return ref.watch(backendEventsProvider.stream);
-  }
-
-  // New path: only Socket.IO / mock events (WebSocket is not connected)
   return adapter.events;
 });
 

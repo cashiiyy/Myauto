@@ -9,6 +9,7 @@ POST /api/matches/{match_id}/reject — driver rejects a match
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -19,6 +20,7 @@ from app.auth.firebase_auth import VerifiedToken, get_current_user
 from app.redis.client import get_redis
 from app.redis.keys import RedisKeys
 from app.database.connection import get_db
+from app.repositories.ride_repository import RideRepository
 from app.schemas.ride import MatchActionResponse
 from app.websocket.manager import manager
 from app.schemas.event import WebSocketEvent, EventType
@@ -37,14 +39,41 @@ async def accept_match(
 ):
     """
     Driver accepts a ride request match.
-    Transitions the ride session to ACTIVE and notifies the passenger.
+    Validates expiration, transitions the ride session to ACTIVE, updates DB, and notifies the passenger.
     """
-    # Look up the session to find the passenger UID for notification
     session_key = RedisKeys.ride_session(match_id)
     session = await redis.hgetall(session_key)
 
     driver_uid = session.get("driver_uid") if session else None
     passenger_uid = session.get("passenger_uid") if session else None
+    expires_at_str = session.get("expires_at") if session else None
+
+    # Check expiration
+    if expires_at_str:
+        try:
+            expires_at = datetime.fromisoformat(expires_at_str)
+            if datetime.now(timezone.utc) > expires_at:
+                # Return driver to AVAILABLE
+                avail_key = RedisKeys.driver_availability(user.uid)
+                await redis.set(avail_key, "AVAILABLE", ex=35)
+
+                # Notify passenger
+                if passenger_uid:
+                    event = WebSocketEvent(
+                        type=EventType.RIDE_REJECTED,
+                        ride_id=match_id,
+                        payload={"message": "Ride request expired."},
+                    )
+                    await manager.send_personal_message(event, passenger_uid)
+
+                raise HTTPException(
+                    status_code=status.HTTP_410_GONE,
+                    detail="This ride request has expired.",
+                )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.debug("Expiry check parse error: %s", e)
 
     # Authorization: only the reserved driver may accept
     if driver_uid and driver_uid != user.uid:
@@ -60,6 +89,19 @@ async def accept_match(
     # Update session state
     if session:
         await redis.hset(session_key, "state", "ACTIVE")
+
+    # Update PostgreSQL
+    try:
+        ride_repo = RideRepository(db)
+        await ride_repo.update_status(
+            ride_id=UUID(match_id),
+            status="accepted",
+            driver_uid=user.uid,
+        )
+        await db.commit()
+    except Exception as db_err:
+        logger.debug("DB status update error on accept: %s", db_err)
+        await db.rollback()
 
     # Notify passenger
     if passenger_uid:
@@ -90,7 +132,7 @@ async def reject_match(
 ):
     """
     Driver rejects a ride request match.
-    Records rejection, returns driver to AVAILABLE, re-runs matching for next candidate.
+    Records rejection, returns driver to AVAILABLE, updates DB, and notifies passenger.
     """
     session_key = RedisKeys.ride_session(match_id)
     session = await redis.hgetall(session_key)
@@ -112,7 +154,21 @@ async def reject_match(
     if session:
         await redis.hset(session_key, mapping={"state": "SEARCHING", "driver_uid": ""})
 
-    # Notify passenger that driver rejected — they may need to wait for re-match
+    # Update PostgreSQL status
+    try:
+        ride_repo = RideRepository(db)
+        await ride_repo.update_status(
+            ride_id=UUID(match_id),
+            status="rejected",
+            cancelled_by="driver",
+            cancel_reason=f"Rejected by driver {user.uid}",
+        )
+        await db.commit()
+    except Exception as db_err:
+        logger.debug("DB status update error on reject: %s", db_err)
+        await db.rollback()
+
+    # Notify passenger that driver rejected
     if passenger_uid:
         event = WebSocketEvent(
             type=EventType.RIDE_REJECTED,

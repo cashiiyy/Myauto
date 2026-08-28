@@ -3,7 +3,7 @@ Nearest Driver Engine
 ======================
 
 The core algorithm for selecting the best driver for a passenger request.
-Enforces atomicity and eligibility.
+Enforces atomicity and eligibility for both auto-matching and passenger-targeted driver requests.
 """
 
 from __future__ import annotations
@@ -32,12 +32,76 @@ async def find_nearest_driver(
     ride_id: str,
 ) -> Optional[str]:
     """
-    Find and atomically reserve the nearest eligible driver.
-    Returns the driver_uid if successful, None if no driver found.
+    Find and atomically reserve an eligible driver.
+    If request.driver_uid is specified, validates and locks that specific driver.
+    Otherwise, performs a multi-ring proximity search.
     """
     settings = get_settings()
 
-    # Define the search rings (e.g. 2km, then 5km)
+    # ── Path A: Passenger selected a specific driver UID ───────────────────────
+    if request.driver_uid:
+        driver_uid = request.driver_uid.strip()
+        logger.info(
+            "Passenger %s targeted specific driver %s for ride %s",
+            passenger_uid,
+            driver_uid,
+            ride_id,
+        )
+
+        # 1. Eligibility pre-check (must be AVAILABLE, LIVE/DELAYED, not rejected)
+        if not await is_driver_eligible(redis, driver_uid, ride_id):
+            logger.warning("Targeted driver %s is currently ineligible", driver_uid)
+            return None
+
+        # 2. Radius and distance check
+        pos = await geo_get_position(redis, driver_uid)
+        if not pos:
+            # Check location hash fallback
+            from app.redis.keys import RedisKeys
+            loc_data = await redis.hgetall(RedisKeys.driver_location(driver_uid))
+            if loc_data and "lat" in loc_data and "lng" in loc_data:
+                pos = (float(loc_data["lng"]), float(loc_data["lat"]))
+
+        if not pos:
+            logger.warning("Targeted driver %s has no valid GPS position", driver_uid)
+            return None
+
+        lng, lat = pos
+        dist_km = haversine_distance_km(request.pickup_lat, request.pickup_lng, lat, lng)
+        max_allowed_radius = max(settings.fallback_radius_km, 10.0)
+        if dist_km > max_allowed_radius:
+            logger.warning(
+                "Targeted driver %s is too far away (%.2f km > %.2f km)",
+                driver_uid,
+                dist_km,
+                max_allowed_radius,
+            )
+            return None
+
+        # 3. Attempt Atomic Reservation Lock (SET NX EX)
+        lock_acquired = await acquire_driver_lock(redis, driver_uid, passenger_uid)
+        if not lock_acquired:
+            logger.warning(
+                "Targeted driver %s reservation lock could not be acquired (competitor booking)",
+                driver_uid,
+            )
+            return None
+
+        try:
+            # 4. Double check eligibility while holding lock
+            if not await is_driver_eligible(redis, driver_uid, ride_id):
+                logger.warning("Targeted driver %s became ineligible after locking", driver_uid)
+                await release_driver_lock(redis, driver_uid, passenger_uid)
+                return None
+
+            logger.info("Successfully reserved targeted driver %s for ride %s", driver_uid, ride_id)
+            return driver_uid
+        except Exception as e:
+            logger.error("Error during targeted reservation for driver %s: %s", driver_uid, e)
+            await release_driver_lock(redis, driver_uid, passenger_uid)
+            raise
+
+    # ── Path B: Proximity-based Auto-Matching ─────────────────────────────────
     radii = [settings.initial_radius_km, settings.fallback_radius_km]
 
     for radius in radii:
@@ -49,22 +113,17 @@ async def find_nearest_driver(
             center_lat=request.pickup_lat,
             center_lng=request.pickup_lng,
             radius_km=radius,
-            count=100,  # limit to top 100 in radius
+            count=100,
         )
         
         if not candidates:
             continue
 
-        # Candidates are returned as (driver_uid, approx_dist) from Redis GEO.
-        # We need exact Haversine ranking to match client expectations and filter
-        # out ineligible candidates.
-        
         ranked_candidates = []
         for uid, approx_dist in candidates:
             if not await is_driver_eligible(redis, uid, ride_id):
                 continue
                 
-            # Get exact lat/lng for accurate Haversine calculation
             pos = await geo_get_position(redis, uid)
             if not pos:
                 continue
@@ -74,7 +133,6 @@ async def find_nearest_driver(
                 request.pickup_lat, request.pickup_lng, lat, lng
             )
             
-            # Re-check radius with exact distance
             if exact_dist <= radius:
                 ranked_candidates.append((exact_dist, uid))
 
@@ -92,14 +150,12 @@ async def find_nearest_driver(
                 
             try:
                 # 4. Double-check eligibility while holding the lock
-                # (State could have changed between search and lock acquisition)
                 if not await is_driver_eligible(redis, driver_uid, ride_id):
                     logger.debug("Driver %s became ineligible during lock acquisition", driver_uid)
                     await release_driver_lock(redis, driver_uid, passenger_uid)
                     continue
 
-                # 5. Success! The caller is now responsible for DB transactions 
-                # and releasing the lock once state is updated.
+                # 5. Success
                 logger.info("Successfully reserved driver %s for ride %s", driver_uid, ride_id)
                 return driver_uid
                 

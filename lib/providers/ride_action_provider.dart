@@ -5,8 +5,10 @@ import '../models/ride_result_model.dart';
 import '../models/backend_event.dart';
 import '../providers/auth_provider.dart';
 import '../providers/backend_client_provider.dart';
+import '../providers/destination_provider.dart';
 import '../providers/location_provider.dart';
 import '../providers/rtdb_provider.dart';
+import '../providers/selected_driver_provider.dart';
 import '../services/backend/api_client.dart';
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -23,6 +25,12 @@ class RideActionState {
   /// Driver UID confirmed by the server (ride.matched event).
   final String? matchedDriverUid;
 
+  /// Targeted driver UID if passenger selected a specific driver.
+  final String? selectedDriverUid;
+
+  /// Destination label if selected by passenger.
+  final String? destinationLabel;
+
   /// Match ID used for accept/reject calls.
   final String? matchId;
 
@@ -31,6 +39,8 @@ class RideActionState {
     this.message,
     this.backendRequestId,
     this.matchedDriverUid,
+    this.selectedDriverUid,
+    this.destinationLabel,
     this.matchId,
   });
 
@@ -42,6 +52,8 @@ class RideActionState {
     String? message,
     String? backendRequestId,
     String? matchedDriverUid,
+    String? selectedDriverUid,
+    String? destinationLabel,
     String? matchId,
   }) =>
       RideActionState(
@@ -49,6 +61,8 @@ class RideActionState {
         message: message ?? this.message,
         backendRequestId: backendRequestId ?? this.backendRequestId,
         matchedDriverUid: matchedDriverUid ?? this.matchedDriverUid,
+        selectedDriverUid: selectedDriverUid ?? this.selectedDriverUid,
+        destinationLabel: destinationLabel ?? this.destinationLabel,
         matchId: matchId ?? this.matchId,
       );
 }
@@ -139,19 +153,35 @@ class RideActionController extends StateNotifier<RideActionState> {
       return;
     }
 
-    state = state.copyWith(status: RideActionStatus.loading);
+    final destination = _ref.read(destinationProvider);
+    final selectedDriver = _ref.read(selectedDriverProvider);
+    final idempotencyKey = '${uid}_${DateTime.now().millisecondsSinceEpoch}';
+
+    state = state.copyWith(
+      status: RideActionStatus.loading,
+      selectedDriverUid: selectedDriver?.driverUid,
+      destinationLabel: destination?.displayLabel,
+    );
 
     try {
       final result = await _api.createRideRequest(
         lat,
         lng,
         pickupAccuracyMeters: _ref.read(currentLocationProvider).value?.accuracy,
+        destinationLat: destination?.latitude,
+        destinationLng: destination?.longitude,
+        destinationLabel: destination?.displayLabel,
+        driverUid: selectedDriver?.driverUid,
+        passengerName: _name,
+        idempotencyKey: idempotencyKey,
       );
 
       if (result.isExpired) {
         state = state.copyWith(
           status: RideActionStatus.idle,
-          message: 'No drivers available nearby. Please try again.',
+          message: selectedDriver != null
+              ? 'Selected driver is currently unavailable. Please select another auto.'
+              : 'No drivers available nearby. Please try again.',
         );
         return;
       }
@@ -159,10 +189,10 @@ class RideActionController extends StateNotifier<RideActionState> {
       state = state.copyWith(
         status: RideActionStatus.requesting,
         backendRequestId: result.requestId,
-        matchedDriverUid: result.driverUid,
+        matchedDriverUid: result.driverUid ?? selectedDriver?.driverUid,
         message: result.message,
       );
-      debugPrint('[RideAction] Ride requested → id=${result.requestId}');
+      debugPrint('[RideAction] Ride requested → id=${result.requestId}, driver=${result.driverUid}');
     } on BackendNetworkException {
       state = state.copyWith(
         status: RideActionStatus.error,
@@ -171,7 +201,9 @@ class RideActionController extends StateNotifier<RideActionState> {
     } on BackendServerException catch (e) {
       state = state.copyWith(
         status: RideActionStatus.error,
-        message: 'Server error: ${e.message}',
+        message: e.statusCode == 409
+            ? 'Driver is currently busy or booked. Please try another auto.'
+            : 'Server error: ${e.message}',
       );
     } catch (e) {
       state = state.copyWith(

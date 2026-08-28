@@ -63,5 +63,12 @@ async def release_driver_lock(
     end
     """
     
-    result = await redis.eval(script, 1, key, passenger_uid)
-    return bool(result)
+    try:
+        result = await redis.eval(script, 1, key, passenger_uid)
+        return bool(result)
+    except Exception:
+        current = await redis.get(key)
+        if current == passenger_uid:
+            await redis.delete(key)
+            return True
+        return False

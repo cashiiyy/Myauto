@@ -8,14 +8,13 @@ Redis is mocked using fakeredis.
 
 Run:
     cd backend
-    pip install pytest pytest-asyncio httpx fakeredis
     pytest tests/ -v --asyncio-mode=auto
 """
 
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock, patch
 import time
@@ -23,19 +22,15 @@ import time
 import pytest
 import pytest_asyncio
 
-# ---------------------------------------------------------------------------
-# Conditionally import httpx / fakeredis — these may not be installed yet
-# in which case tests are skipped.
-# ---------------------------------------------------------------------------
 try:
     import httpx
-    from httpx import AsyncClient
+    from httpx import AsyncClient, ASGITransport
     HAS_HTTPX = True
 except ImportError:
     HAS_HTTPX = False
 
 try:
-    import fakeredis.aioredis as fakeredis
+    import fakeredis.aioredis as fake_aioredis
     HAS_FAKEREDIS = True
 except ImportError:
     HAS_FAKEREDIS = False
@@ -58,8 +53,7 @@ def mock_redis():
     """In-memory Redis for tests."""
     if not HAS_FAKEREDIS:
         pytest.skip("fakeredis not installed — run: pip install fakeredis")
-    server = fakeredis.FakeServer()
-    return fakeredis.FakeRedis(server=server, decode_responses=True)
+    return fake_aioredis.FakeRedis(decode_responses=True)
 
 
 @pytest.fixture
@@ -82,14 +76,25 @@ def app_with_mocks(mock_redis):
     return app
 
 
+@pytest_asyncio.fixture
+async def client(app_with_mocks) -> AsyncGenerator[AsyncClient, None]:
+    """Async HTTP test client."""
+    try:
+        transport = ASGITransport(app=app_with_mocks)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            yield c
+    except TypeError:
+        async with AsyncClient(app=app_with_mocks, base_url="http://test") as c:
+            yield c
+
+
 # ---------------------------------------------------------------------------
 # Health endpoint
 # ---------------------------------------------------------------------------
 
 @pytest.mark.skipif(not HAS_HTTPX, reason="httpx not installed")
-async def test_health_returns_200(app_with_mocks):
-    async with AsyncClient(app=app_with_mocks, base_url="http://test") as client:
-        resp = await client.get("/health")
+async def test_health_returns_200(client):
+    resp = await client.get("/health")
     assert resp.status_code == 200
     body = resp.json()
     assert body.get("status") == "ok"
@@ -105,19 +110,32 @@ async def test_location_without_auth_returns_401():
     from app.main import create_app
     app = create_app()
 
-    # Patch Firebase init so the app starts
     with patch("app.auth.firebase_auth.init_firebase", return_value=MagicMock()):
-        async with AsyncClient(app=app, base_url="http://test") as client:
-            now_ms = int(time.time() * 1000)
-            resp = await client.post(
-                "/api/location",
-                json={
-                    "latitude": 8.5241,
-                    "longitude": 76.9366,
-                    "captured_at": now_ms,
-                    "role": "driver",
-                },
-            )
+        try:
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                now_ms = int(time.time() * 1000)
+                resp = await client.post(
+                    "/api/location",
+                    json={
+                        "latitude": 8.5241,
+                        "longitude": 76.9366,
+                        "captured_at": now_ms,
+                        "role": "driver",
+                    },
+                )
+        except TypeError:
+            async with AsyncClient(app=app, base_url="http://test") as client:
+                now_ms = int(time.time() * 1000)
+                resp = await client.post(
+                    "/api/location",
+                    json={
+                        "latitude": 8.5241,
+                        "longitude": 76.9366,
+                        "captured_at": now_ms,
+                        "role": "driver",
+                    },
+                )
     assert resp.status_code == 401
 
 
@@ -126,22 +144,21 @@ async def test_location_without_auth_returns_401():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.skipif(not HAS_HTTPX, reason="httpx not installed")
-async def test_driver_location_update_accepted(app_with_mocks, mock_redis):
+async def test_driver_location_update_accepted(client):
     now_ms = int(time.time() * 1000)
-    async with AsyncClient(app=app_with_mocks, base_url="http://test") as client:
-        resp = await client.post(
-            "/api/location",
-            json={
-                "latitude": 8.5241,
-                "longitude": 76.9366,
-                "accuracy_meters": 10.0,
-                "speed_mps": 5.0,
-                "heading_degrees": 90.0,
-                "captured_at": now_ms,
-                "sequence": 1,
-                "role": "driver",
-            },
-        )
+    resp = await client.post(
+        "/api/location",
+        json={
+            "latitude": 8.5241,
+            "longitude": 76.9366,
+            "accuracy_meters": 10.0,
+            "speed_mps": 5.0,
+            "heading_degrees": 90.0,
+            "captured_at": now_ms,
+            "sequence": 1,
+            "role": "driver",
+        },
+    )
     assert resp.status_code == 200
     body = resp.json()
     assert body["accepted"] is True
@@ -149,37 +166,35 @@ async def test_driver_location_update_accepted(app_with_mocks, mock_redis):
 
 
 @pytest.mark.skipif(not HAS_HTTPX, reason="httpx not installed")
-async def test_passenger_location_update_accepted(app_with_mocks, mock_redis):
+async def test_passenger_location_update_accepted(client):
     now_ms = int(time.time() * 1000)
-    async with AsyncClient(app=app_with_mocks, base_url="http://test") as client:
-        resp = await client.post(
-            "/api/location",
-            json={
-                "latitude": 8.5241,
-                "longitude": 76.9366,
-                "captured_at": now_ms,
-                "sequence": 1,
-                "role": "passenger",
-            },
-        )
+    resp = await client.post(
+        "/api/location",
+        json={
+            "latitude": 8.5241,
+            "longitude": 76.9366,
+            "captured_at": now_ms,
+            "sequence": 1,
+            "role": "passenger",
+        },
+    )
     assert resp.status_code == 200
     body = resp.json()
     assert body["accepted"] is True
 
 
 @pytest.mark.skipif(not HAS_HTTPX, reason="httpx not installed")
-async def test_location_invalid_coordinates_returns_422(app_with_mocks):
+async def test_location_invalid_coordinates_returns_422(client):
     now_ms = int(time.time() * 1000)
-    async with AsyncClient(app=app_with_mocks, base_url="http://test") as client:
-        resp = await client.post(
-            "/api/location",
-            json={
-                "latitude": 999.0,  # invalid
-                "longitude": 76.9366,
-                "captured_at": now_ms,
-                "role": "driver",
-            },
-        )
+    resp = await client.post(
+        "/api/location",
+        json={
+            "latitude": 999.0,  # invalid
+            "longitude": 76.9366,
+            "captured_at": now_ms,
+            "role": "driver",
+        },
+    )
     assert resp.status_code == 422
 
 
@@ -188,19 +203,18 @@ async def test_location_invalid_coordinates_returns_422(app_with_mocks):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.skipif(not HAS_HTTPX, reason="httpx not installed")
-async def test_nearby_drivers_returns_list(app_with_mocks, mock_redis):
+async def test_nearby_drivers_returns_list(client):
     """With no drivers registered, should return an empty list."""
-    async with AsyncClient(app=app_with_mocks, base_url="http://test") as client:
-        resp = await client.get(
-            "/api/drivers/nearby",
-            params={"lat": 8.5241, "lng": 76.9366, "radius_km": 2.0},
-        )
+    resp = await client.get(
+        "/api/drivers/nearby",
+        params={"lat": 8.5241, "lng": 76.9366, "radius_km": 2.0},
+    )
     assert resp.status_code == 200
     assert isinstance(resp.json(), list)
 
 
 @pytest.mark.skipif(not HAS_HTTPX, reason="httpx not installed")
-async def test_nearby_drivers_returns_registered_driver(app_with_mocks, mock_redis):
+async def test_nearby_drivers_returns_registered_driver(client, mock_redis):
     """A driver whose location is registered should appear in the nearby list."""
     from app.redis.geo import geo_add_driver
     from app.redis.keys import RedisKeys
@@ -221,11 +235,10 @@ async def test_nearby_drivers_returns_registered_driver(app_with_mocks, mock_red
     avail_key = RedisKeys.driver_availability(driver_uid)
     await mock_redis.set(avail_key, "AVAILABLE", ex=35)
 
-    async with AsyncClient(app=app_with_mocks, base_url="http://test") as client:
-        resp = await client.get(
-            "/api/drivers/nearby",
-            params={"lat": 8.5241, "lng": 76.9366, "radius_km": 2.0},
-        )
+    resp = await client.get(
+        "/api/drivers/nearby",
+        params={"lat": 8.5241, "lng": 76.9366, "radius_km": 2.0},
+    )
     assert resp.status_code == 200
     drivers = resp.json()
     assert any(d["driver_uid"] == driver_uid for d in drivers)
@@ -239,16 +252,15 @@ async def test_nearby_drivers_returns_registered_driver(app_with_mocks, mock_red
 # ---------------------------------------------------------------------------
 
 @pytest.mark.skipif(not HAS_HTTPX, reason="httpx not installed")
-async def test_ride_request_with_no_drivers_returns_expired(app_with_mocks, mock_redis):
+async def test_ride_request_with_no_drivers_returns_expired(client):
     """With no nearby drivers, ride request should return 'expired' status."""
-    async with AsyncClient(app=app_with_mocks, base_url="http://test") as client:
-        resp = await client.post(
-            "/api/rides/requests",
-            json={
-                "pickup_lat": 8.5241,
-                "pickup_lng": 76.9366,
-            },
-        )
+    resp = await client.post(
+        "/api/rides/requests",
+        json={
+            "pickup_lat": 8.5241,
+            "pickup_lng": 76.9366,
+        },
+    )
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "expired"
@@ -256,17 +268,16 @@ async def test_ride_request_with_no_drivers_returns_expired(app_with_mocks, mock
 
 
 @pytest.mark.skipif(not HAS_HTTPX, reason="httpx not installed")
-async def test_ride_request_returns_string_uuid(app_with_mocks, mock_redis):
+async def test_ride_request_returns_string_uuid(client):
     """request_id must be a string that looks like a UUID."""
     import re
     UUID_RE = re.compile(
         r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
     )
-    async with AsyncClient(app=app_with_mocks, base_url="http://test") as client:
-        resp = await client.post(
-            "/api/rides/requests",
-            json={"pickup_lat": 8.5241, "pickup_lng": 76.9366},
-        )
+    resp = await client.post(
+        "/api/rides/requests",
+        json={"pickup_lat": 8.5241, "pickup_lng": 76.9366},
+    )
     body = resp.json()
     assert UUID_RE.match(body["request_id"]), (
         f"request_id is not a UUID: {body['request_id']!r}"
@@ -274,14 +285,90 @@ async def test_ride_request_returns_string_uuid(app_with_mocks, mock_redis):
 
 
 # ---------------------------------------------------------------------------
+# Destination & Targeted Driver Tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(not HAS_HTTPX, reason="httpx not installed")
+async def test_ride_request_with_destination_and_targeted_driver(client, mock_redis):
+    """Passenger targets a specific driver with complete destination data."""
+    from app.redis.geo import geo_add_driver
+    from app.redis.keys import RedisKeys
+
+    driver_uid = "targeted_driver_999"
+    driver_lat, driver_lng = 8.5241, 76.9366
+    now_ms = int(time.time() * 1000)
+
+    # Register driver in Redis
+    await geo_add_driver(mock_redis, driver_uid, driver_lat, driver_lng)
+    loc_key = RedisKeys.driver_location(driver_uid)
+    await mock_redis.hset(loc_key, mapping={
+        "lat": str(driver_lat),
+        "lng": str(driver_lng),
+        "freshness": "LIVE",
+        "received_at": str(now_ms),
+    })
+    avail_key = RedisKeys.driver_availability(driver_uid)
+    await mock_redis.set(avail_key, "AVAILABLE", ex=35)
+
+    resp = await client.post(
+        "/api/rides/requests",
+        json={
+            "pickup_lat": 8.5240,
+            "pickup_lng": 76.9365,
+            "destination_lat": 8.5300,
+            "destination_lng": 76.9400,
+            "destination_label": "Central Station",
+            "driver_uid": driver_uid,
+            "passenger_name": "Test Passenger",
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "matching"
+    assert body["driver_uid"] == driver_uid
+
+
+@pytest.mark.skipif(not HAS_HTTPX, reason="httpx not installed")
+async def test_ride_request_idempotency(client):
+    """Duplicate requests with the same Idempotency-Key should return identical cached response."""
+    idempotency_key = "idemp_test_key_12345"
+
+    resp1 = await client.post(
+        "/api/rides/requests",
+        headers={"Idempotency-Key": idempotency_key},
+        json={
+            "pickup_lat": 8.5241,
+            "pickup_lng": 76.9366,
+            "idempotency_key": idempotency_key,
+        },
+    )
+    assert resp1.status_code == 200
+    body1 = resp1.json()
+
+    resp2 = await client.post(
+        "/api/rides/requests",
+        headers={"Idempotency-Key": idempotency_key},
+        json={
+            "pickup_lat": 8.5241,
+            "pickup_lng": 76.9366,
+            "idempotency_key": idempotency_key,
+        },
+    )
+    assert resp2.status_code == 200
+    body2 = resp2.json()
+
+    assert body1["request_id"] == body2["request_id"]
+    assert body1["status"] == body2["status"]
+
+
+# ---------------------------------------------------------------------------
 # Matches — accept / reject
 # ---------------------------------------------------------------------------
 
 @pytest.mark.skipif(not HAS_HTTPX, reason="httpx not installed")
-async def test_accept_match_returns_accepted(app_with_mocks, mock_redis):
+async def test_accept_match_returns_accepted(client):
     match_id = "some-match-id-123"
-    async with AsyncClient(app=app_with_mocks, base_url="http://test") as client:
-        resp = await client.post(f"/api/matches/{match_id}/accept")
+    resp = await client.post(f"/api/matches/{match_id}/accept")
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "accepted"
@@ -289,10 +376,29 @@ async def test_accept_match_returns_accepted(app_with_mocks, mock_redis):
 
 
 @pytest.mark.skipif(not HAS_HTTPX, reason="httpx not installed")
-async def test_reject_match_returns_rejected(app_with_mocks, mock_redis):
+async def test_accept_expired_match_returns_410(client, mock_redis):
+    """Attempting to accept an expired ride request should return HTTP 410 Gone."""
+    from app.redis.keys import RedisKeys
+
+    match_id = "expired-match-123"
+    expired_time = (datetime.now(timezone.utc) - timedelta(seconds=10)).isoformat()
+
+    session_key = RedisKeys.ride_session(match_id)
+    await mock_redis.hset(session_key, mapping={
+        "passenger_uid": "some_passenger",
+        "driver_uid": "test_driver_uid",
+        "state": "MATCHED",
+        "expires_at": expired_time,
+    })
+
+    resp = await client.post(f"/api/matches/{match_id}/accept")
+    assert resp.status_code == 410
+
+
+@pytest.mark.skipif(not HAS_HTTPX, reason="httpx not installed")
+async def test_reject_match_returns_rejected(client):
     match_id = "some-match-id-456"
-    async with AsyncClient(app=app_with_mocks, base_url="http://test") as client:
-        resp = await client.post(f"/api/matches/{match_id}/reject")
+    resp = await client.post(f"/api/matches/{match_id}/reject")
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "rejected"
@@ -303,11 +409,11 @@ async def test_reject_match_returns_rejected(app_with_mocks, mock_redis):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.skipif(not HAS_HTTPX, reason="httpx not installed")
-async def test_cancel_own_ride_succeeds(app_with_mocks, mock_redis):
+async def test_cancel_own_ride_succeeds(client, mock_redis):
     """Passenger can cancel their own ride."""
     from app.redis.keys import RedisKeys
     ride_id = "test-ride-to-cancel"
-    passenger_uid = "test_driver_uid"  # matches mock auth uid
+    passenger_uid = "test_driver_uid"
 
     session_key = RedisKeys.ride_session(ride_id)
     await mock_redis.hset(session_key, mapping={
@@ -315,27 +421,25 @@ async def test_cancel_own_ride_succeeds(app_with_mocks, mock_redis):
         "state": "SEARCHING",
     })
 
-    async with AsyncClient(app=app_with_mocks, base_url="http://test") as client:
-        resp = await client.post(f"/api/rides/requests/{ride_id}/cancel")
+    resp = await client.post(f"/api/rides/requests/{ride_id}/cancel")
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "cancelled"
 
 
 @pytest.mark.skipif(not HAS_HTTPX, reason="httpx not installed")
-async def test_cancel_other_ride_returns_403(app_with_mocks, mock_redis):
+async def test_cancel_other_ride_returns_403(client, mock_redis):
     """User cannot cancel someone else's ride."""
     from app.redis.keys import RedisKeys
     ride_id = "other-persons-ride"
 
     session_key = RedisKeys.ride_session(ride_id)
     await mock_redis.hset(session_key, mapping={
-        "passenger_uid": "different_user_uid",  # not the authenticated user
+        "passenger_uid": "different_user_uid",
         "state": "SEARCHING",
     })
 
-    async with AsyncClient(app=app_with_mocks, base_url="http://test") as client:
-        resp = await client.post(f"/api/rides/requests/{ride_id}/cancel")
+    resp = await client.post(f"/api/rides/requests/{ride_id}/cancel")
     assert resp.status_code == 403
 
 
@@ -344,13 +448,12 @@ async def test_cancel_other_ride_returns_403(app_with_mocks, mock_redis):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.skipif(not HAS_HTTPX, reason="httpx not installed")
-async def test_sos_returns_acknowledged(app_with_mocks, mock_redis):
+async def test_sos_returns_acknowledged(client):
     ride_id = "sos-ride-id"
-    async with AsyncClient(app=app_with_mocks, base_url="http://test") as client:
-        resp = await client.post(
-            f"/api/rides/requests/{ride_id}/sos",
-            json={"latitude": 8.5241, "longitude": 76.9366, "message": "Need help!"},
-        )
+    resp = await client.post(
+        f"/api/rides/requests/{ride_id}/sos",
+        json={"latitude": 8.5241, "longitude": 76.9366, "message": "Need help!"},
+    )
     assert resp.status_code == 200
     body = resp.json()
     assert body["acknowledged"] is True

@@ -110,20 +110,31 @@ class Ride(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     passenger_uid = Column(String(128), ForeignKey("users.firebase_uid"), nullable=False, index=True)
     driver_uid = Column(String(128), ForeignKey("drivers.driver_uid"), nullable=True, index=True)
+    selected_driver_uid = Column(String(128), ForeignKey("drivers.driver_uid"), nullable=True, index=True)
     pickup_location = Column(Geography(geometry_type="POINT", srid=4326), nullable=False)
     dropoff_location = Column(Geography(geometry_type="POINT", srid=4326), nullable=True)
+    dropoff_lat = Column(Float, nullable=True)
+    dropoff_lng = Column(Float, nullable=True)
+    destination_label = Column(String(256), nullable=True)
+    passenger_name = Column(String(128), nullable=True)
+    idempotency_key = Column(String(64), unique=True, nullable=True, index=True)
     status = Column(String(32), default="requested", nullable=False, index=True)  # requested, accepted, in_progress, completed, cancelled, rejected
     distance_km = Column(Float, nullable=True)
     duration_seconds = Column(Integer, nullable=True)
     notes = Column(Text, nullable=True)
+    request_expires_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    cancelled_by = Column(String(32), nullable=True)
+    cancel_reason = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
     passenger = relationship("User", back_populates="rides_as_passenger", foreign_keys=[passenger_uid])
     driver = relationship("Driver", back_populates="rides", foreign_keys=[driver_uid])
+    selected_driver = relationship("Driver", foreign_keys=[selected_driver_uid])
 
     __table_args__ = (
         Index("idx_rides_pickup_location_gist", "pickup_location", postgresql_using="gist"),
+        Index("idx_rides_idempotency_key", "idempotency_key"),
     )
 
 

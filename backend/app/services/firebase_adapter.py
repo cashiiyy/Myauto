@@ -85,6 +85,18 @@ class FirebaseAuthAdapter:
             logger.warning("Firebase token verification failed: %s", e)
             return None
 
+    async def get_user_display_name(self, uid: str) -> Optional[str]:
+        """Fetch user display name from Firebase Admin Auth."""
+        if not self.enabled or not init_firebase_sdk():
+            return None
+        try:
+            from firebase_admin import auth
+            user_record = auth.get_user(uid)
+            return user_record.display_name or (user_record.email.split("@")[0] if user_record.email else None)
+        except Exception as e:
+            logger.debug("Firebase get_user failed for uid %s: %s", uid, e)
+            return None
+
 
 class FirebaseRealtimeAdapter(ABC):
     """Interface for Firebase Realtime Database paths (active_drivers, ride_shares)."""

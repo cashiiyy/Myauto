@@ -64,12 +64,27 @@ class RedisKeys:
     DRIVERS_GEO: str = "drivers:geo"
     """Redis GEO sorted set of all currently-active drivers."""
 
-    # ── WebSocket connections ──────────────────────────────────────────────────
+    # ── WebSocket connections & Pub/Sub Channels ──────────────────────────────
 
     @staticmethod
     def ws_connection(uid: str) -> str:
         """hash: {connection_id, role, last_heartbeat}"""
         return f"ws:connections:{uid}"
+
+    @staticmethod
+    def ws_user_channel(uid: str) -> str:
+        """Pub/Sub channel for delivering WebSocket events to a specific user across workers."""
+        return f"ws:channel:{uid}"
+
+    WS_BROADCAST_CHANNEL: str = "ws:broadcast"
+    """Pub/Sub channel for delivering broadcast events across workers."""
+
+    # ── Idempotency ────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def idempotency_ride(key: str) -> str:
+        """string: JSON cached RideRequestResponse  TTL=120s"""
+        return f"idempotency:ride:{key}"
 
     # ── Sequence tracking (prevent out-of-order GPS updates) ──────────────────
 
@@ -77,3 +92,4 @@ class RedisKeys:
     def driver_sequence(driver_uid: str) -> str:
         """string: last accepted sequence number  TTL=60s"""
         return f"driver:seq:{driver_uid}"
+

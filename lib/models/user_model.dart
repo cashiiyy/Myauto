@@ -76,4 +76,41 @@ class UserModel {
       isAvailable: map['isAvailable'],
     );
   }
+
+  UserModel copyWith({
+    String? uid,
+    String? email,
+    String? role,
+    String? name,
+    String? phone,
+    DateTime? createdAt,
+    bool? isVerified,
+    bool? isRequesting,
+    String? autoRegistrationNumber,
+    String? licenseNumber,
+    String? driverPhotoUrl,
+    String? autoPhotoUrl,
+    double? latitude,
+    double? longitude,
+    bool? isAvailable,
+  }) {
+    return UserModel(
+      uid: uid ?? this.uid,
+      email: email ?? this.email,
+      role: role ?? this.role,
+      name: name ?? this.name,
+      phone: phone ?? this.phone,
+      createdAt: createdAt ?? this.createdAt,
+      isVerified: isVerified ?? this.isVerified,
+      isRequesting: isRequesting ?? this.isRequesting,
+      autoRegistrationNumber: autoRegistrationNumber ?? this.autoRegistrationNumber,
+      licenseNumber: licenseNumber ?? this.licenseNumber,
+      driverPhotoUrl: driverPhotoUrl ?? this.driverPhotoUrl,
+      autoPhotoUrl: autoPhotoUrl ?? this.autoPhotoUrl,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
+      isAvailable: isAvailable ?? this.isAvailable,
+    );
+  }
 }
+

@@ -59,11 +59,28 @@ class Settings(BaseSettings):
     cors_origins: str = ""
 
     # ── Location Quality & Matching Defaults ───────────────────────────────────
+    lat_min: float = 6.0
+    lat_max: float = 38.0
+    lon_min: float = 68.0
+    lon_max: float = 98.0
     max_match_accuracy_meters: float = 100.0
     max_match_age_seconds: int = 30
     initial_radius_km: float = 2.0
     fallback_radius_km: float = 5.0
     max_radius_km: float = 10.0
+    max_speed_mps: float = 35.0
+
+    # ── TTLs and Intervals ───────────────────────────────────────────────────
+    driver_lock_ttl_seconds: int = 10
+    driver_presence_ttl_seconds: int = 35
+    live_location_ttl_seconds: int = 35
+    idempotency_ttl_seconds: int = 120
+    ws_heartbeat_interval_seconds: int = 20
+
+    # ── Freshness Windows ────────────────────────────────────────────────────
+    freshness_live_seconds: int = 10
+    freshness_delayed_seconds: int = 30
+    freshness_stale_seconds: int = 60
 
     @property
     def cors_origins_list(self) -> List[str]:

@@ -7,6 +7,7 @@ import '../providers/auth_provider.dart';
 import '../providers/theme_provider.dart';
 
 import 'edit_profile_screen.dart';
+import 'debug_diagnostics_screen.dart';
 import 'safety_contacts_screen.dart';
 import 'settings_screen.dart';
 import 'offers_screen.dart';
@@ -108,6 +109,9 @@ class ProfileScreen extends ConsumerWidget {
 
               _buildMenuCard(context, 'Edit Profile', 'assets/images/Frame 10.png', () {
                 Navigator.push(context, MaterialPageRoute(builder: (_) => EditProfileScreen(user: user)));
+              }),
+              _buildMenuCard(context, 'Debug Diagnostics', 'assets/images/Settings.png', () {
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const DebugDiagnosticsScreen()));
               }),
               _buildMenuCard(context, 'Offers & Promos', 'assets/images/Tags.png', () {
                 Navigator.push(context, MaterialPageRoute(builder: (_) => const OffersScreen()));

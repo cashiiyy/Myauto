@@ -20,13 +20,13 @@ class AppConfig {
   // ── Backend HTTP base URL ─────────────────────────────────────────────────
   static const String backendUrl = String.fromEnvironment(
     'BACKEND_URL',
-    defaultValue: 'http://10.0.2.2:8919',
+    defaultValue: 'https://api.myauto.app',
   );
 
   // ── Backend WebSocket URL ─────────────────────────────────────────────────
   static const String backendWsUrl = String.fromEnvironment(
     'BACKEND_WS_URL',
-    defaultValue: 'ws://10.0.2.2:8919/ws',
+    defaultValue: 'wss://api.myauto.app/ws',
   );
 
   // ── Mock mode bypass ─────────────────────────────────────────────────────

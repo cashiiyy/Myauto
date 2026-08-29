@@ -1,0 +1,1 @@
+- [passenger-driver-registration-flow](passenger-driver-registration-flow.md) — Registration screens, auth flow, Firestore profiles (passenger: isRequesting; driver: auto reg number, license, location), mock mode localSessionProvider

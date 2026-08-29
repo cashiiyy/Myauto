@@ -162,13 +162,13 @@ services:
   # Note: Requires downloading a pre-built Photon database extract on first run.
   # For development, you can use the free public endpoint: PHOTON_URL=https://photon.komoot.io
   photon:
-    image: mediagis/photon:latest
+    image: rtuszik/photon-docker:latest
     container_name: myauto_photon
     restart: unless-stopped
     ports:
       - "2322:2322"
     volumes:
-      - photon_data:/photon/photon_data
+      - photon_data:/photon/data
     networks:
       - backend_net
     healthcheck:

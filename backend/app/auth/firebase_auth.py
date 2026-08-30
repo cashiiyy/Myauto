@@ -107,6 +107,7 @@ def _verify_id_token(raw_token: str) -> VerifiedToken:
     Tokens are verified against Firebase's public keys — no local secret needed.
     """
     try:
+        init_firebase()
         decoded = firebase_auth_module.verify_id_token(
             raw_token,
             check_revoked=True,

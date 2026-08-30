@@ -143,7 +143,10 @@ class BackendWebSocketClient extends ChangeNotifier {
     debugPrint('[WsClient] Connecting to $wsUrl (attempt ${_reconnectAttempts + 1})');
 
     try {
-      _channel = IOWebSocketChannel.connect(Uri.parse(wsUrl));
+      _channel = IOWebSocketChannel.connect(
+        Uri.parse(wsUrl),
+        headers: {'ngrok-skip-browser-warning': 'true'},
+      );
 
       // 3. Wait for the connection to be established
       await _channel!.ready.timeout(const Duration(seconds: 10));

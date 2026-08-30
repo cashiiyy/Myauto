@@ -107,10 +107,10 @@ class AppConfig {
     defaultValue: 'https://photon.komoot.io',
   );
 
-  /// Bounding box for Photon geocoding bias (Kollam district).
+  /// Bounding box for Photon geocoding bias (Trivandrum district).
   static const String photonBbox = String.fromEnvironment(
     'PHOTON_BBOX',
-    defaultValue: '76.35,8.70,76.85,9.10',
+    defaultValue: '76.75,8.40,77.10,8.70',
   );
 
   /// Debounce delay in milliseconds for autocomplete requests.

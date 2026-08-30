@@ -66,7 +66,11 @@ async def websocket_endpoint(websocket: WebSocket):
         user = await get_current_user_ws(websocket)
     except Exception as exc:
         logger.warning("WebSocket auth failed: %s", exc)
-        return  # socket already closed by get_current_user_ws
+        try:
+            await websocket.close(code=4001)
+        except Exception:
+            pass
+        return
 
     uid = user.uid
     settings = get_settings()

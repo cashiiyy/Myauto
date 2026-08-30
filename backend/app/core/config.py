@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     # All new features default to FALSE to strictly preserve existing behavior
     enable_postgres: bool = False
     enable_valhalla: bool = False
-    enable_firebase_auth: bool = False
+    enable_firebase_auth: bool = True
 
     # ── Firebase Admin SDK ────────────────────────────────────────────────────
     firebase_credentials_path: str = "/app/secrets/firebase-service-account.json"

@@ -117,6 +117,7 @@ class PhotonService {
       headers: {
         'Accept': 'application/json',
         'User-Agent': 'MyAuto/1.0 (flutter)',
+        'ngrok-skip-browser-warning': 'true',
       },
     ));
 

@@ -70,7 +70,7 @@ services:
       DATABASE_SYNC_URL: postgresql://${POSTGRES_USER:-myauto}:${POSTGRES_PASSWORD:-myauto}@postgres:5432/${POSTGRES_DB:-myauto}
       ENABLE_POSTGRES: ${ENABLE_POSTGRES:-true}
       ENABLE_VALHALLA: ${ENABLE_VALHALLA:-false}
-      ENABLE_FIREBASE_AUTH: ${ENABLE_FIREBASE_AUTH:-false}
+      ENABLE_FIREBASE_AUTH: ${ENABLE_FIREBASE_AUTH:-true}
       PHOTON_URL: ${PHOTON_URL:-https://photon.komoot.io}
       VALHALLA_URL: ${VALHALLA_URL:-https://valhalla1.openstreetmap.de}
       # Redis
@@ -78,6 +78,7 @@ services:
       # Firebase
       FIREBASE_SERVICE_ACCOUNT_PATH: /app/secrets/serviceAccountKey.json
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-myauto-493fc}
+      FIREBASE_AUTH_MODE: ${FIREBASE_AUTH_MODE:-service_account}
       # App
       APP_ENV: ${APP_ENV:-production}
       APP_LOG_LEVEL: ${APP_LOG_LEVEL:-info}
@@ -92,7 +93,7 @@ services:
     volumes:
       - ./app:/app/app
       - ./migrations:/app/migrations
-      - ./secrets/serviceAccountKey.json:/app/secrets/serviceAccountKey.json:ro
+      - ./secrets:/app/secrets:ro
     networks:
       - backend_net
     depends_on:

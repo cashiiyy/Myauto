@@ -39,13 +39,18 @@ async def lifespan(app: FastAPI):
         from app.websocket.manager import manager
         await manager.start_pubsub_listener()
     except Exception as e:
-        logger.warning("Redis initialization skipped or failed (safe fallback active): %s", e)
+        logger.warning("[REDIS DIAG] Redis initialization skipped or failed: %s", e)
 
-    # 2. Optional Firebase initialization
-    try:
-        init_firebase_sdk()
-    except Exception as e:
-        logger.warning("Firebase initialization skipped (safe fallback active): %s", e)
+    # 2. Firebase Admin initialization (Fail-fast if auth enabled)
+    if settings.enable_firebase_auth:
+        try:
+            from app.auth.firebase_auth import init_firebase
+            init_firebase()
+        except RuntimeError as e:
+            logger.critical("[FATAL AUTH CONFIG] Application startup aborted: %s", e)
+            raise
+        except Exception as e:
+            logger.warning("Firebase initialization fallback error: %s", e)
 
     yield  # Application serves requests
 

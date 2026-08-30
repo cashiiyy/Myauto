@@ -56,46 +56,69 @@ def init_firebase() -> firebase_admin.App:
         pass
 
     settings = get_settings()
-    
-    # 2. Look for explicit service account credential file
-    cred = None
-    candidate_paths = [
-        getattr(settings, "firebase_credentials_path", None),
-        getattr(settings, "firebase_service_account_path", None),
-        "secrets/serviceAccountKey.json",
-        "secrets/firebase-service-account.json",
-        "/app/secrets/firebase-service-account.json",
-        "/app/secrets/serviceAccountKey.json",
-    ]
-
-    for p in candidate_paths:
-        if p and Path(p).exists():
-            try:
-                cred = credentials.Certificate(str(p))
-                logger.info("[AUTH DIAG] Firebase Admin SDK: loaded certificate from %s", p)
-                break
-            except Exception as e:
-                logger.warning("[AUTH DIAG] Failed loading certificate at %s: %s", p, e)
-
-    # 3. Fallback: ApplicationDefault or Project ID options
+    auth_mode = getattr(settings, "firebase_auth_mode", "service_account").lower()
     project_id = getattr(settings, "firebase_project_id", "myauto-493fc")
-    if cred is None:
+
+    # Primary configured path
+    primary_path_str = getattr(settings, "firebase_service_account_path", "/app/secrets/serviceAccountKey.json")
+    primary_path = Path(primary_path_str)
+
+    logger.info(
+        "[AUTH STARTUP] credential_path=%s exists=%s is_file=%s is_dir=%s auth_mode=%s project_id=%s",
+        primary_path,
+        primary_path.exists(),
+        primary_path.is_file(),
+        primary_path.is_dir(),
+        auth_mode,
+        project_id,
+    )
+
+    cred = None
+
+    if auth_mode == "service_account":
+        candidate_paths = [
+            primary_path_str,
+            getattr(settings, "firebase_credentials_path", None),
+        ]
+        candidate_paths = [p for p in candidate_paths if p]
+
+        for p in candidate_paths:
+            path_obj = Path(p)
+            if path_obj.exists() and path_obj.is_file():
+                try:
+                    cred = credentials.Certificate(str(path_obj))
+                    logger.info("[AUTH STARTUP] Firebase Admin SDK: loaded certificate from %s", path_obj)
+                    break
+                except Exception as e:
+                    logger.warning("[AUTH STARTUP] Failed loading certificate at %s: %s", path_obj, e)
+            elif path_obj.exists() and path_obj.is_dir():
+                logger.error(
+                    "[FATAL AUTH CONFIG] Path %s is a DIRECTORY, not a JSON certificate file!",
+                    path_obj,
+                )
+
+        if cred is None:
+            err_msg = (
+                f"[FATAL AUTH CONFIG] Firebase credential file was not found or is not a regular file. "
+                f"Expected: {primary_path_str}. Please ensure serviceAccountKey.json is placed in secrets/ as a valid file."
+            )
+            logger.critical(err_msg)
+            raise RuntimeError(err_msg)
+
+    elif auth_mode == "adc":
         try:
             cred = credentials.ApplicationDefault()
-            logger.info("[AUTH DIAG] Using ApplicationDefault credentials for project %s", project_id)
-        except Exception:
-            cred = None
+            logger.info("[AUTH STARTUP] Using ApplicationDefault credentials (ADC mode explicitly enabled)")
+        except Exception as e:
+            err_msg = f"[FATAL AUTH CONFIG] ApplicationDefault credentials failed: {e}"
+            logger.critical(err_msg)
+            raise RuntimeError(err_msg)
 
     try:
-        if cred is not None:
-            _firebase_app = firebase_admin.initialize_app(
-                cred,
-                {"projectId": project_id},
-            )
-        else:
-            _firebase_app = firebase_admin.initialize_app(
-                options={"projectId": project_id},
-            )
+        _firebase_app = firebase_admin.initialize_app(
+            cred,
+            {"projectId": project_id},
+        )
         logger.info(
             "[AUTH DIAG] Firebase Admin SDK initialised successfully for project: %s",
             project_id,

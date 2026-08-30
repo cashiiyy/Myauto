@@ -45,12 +45,13 @@ class Settings(BaseSettings):
     # All new features default to FALSE to strictly preserve existing behavior
     enable_postgres: bool = False
     enable_valhalla: bool = False
-    enable_firebase_auth: bool = True
+    enable_firebase_auth: bool = False
 
     # ── Firebase Admin SDK ────────────────────────────────────────────────────
     firebase_credentials_path: str = "/app/secrets/firebase-service-account.json"
     firebase_service_account_path: str = "secrets/serviceAccountKey.json"
     firebase_project_id: str = "myauto-493fc"
+    firebase_auth_mode: str = "service_account"  # "service_account" or "adc"
 
     # ── Redis (optional caching / presence) ───────────────────────────────────
     redis_url: str = "redis://redis:6379/0"

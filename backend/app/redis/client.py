@@ -35,12 +35,12 @@ async def init_redis() -> aioredis.Redis:
         decode_responses=True,
         max_connections=50,
         socket_connect_timeout=5,
-        socket_timeout=5,
+        health_check_interval=30,
         retry_on_timeout=True,
     )
     # Verify connectivity
     await _redis_pool.ping()
-    logger.info("Redis connection pool initialised at %s", settings.redis_url)
+    logger.info("[REDIS DIAG] connected=True redis_url=%s", settings.redis_url)
     return _redis_pool
 
 

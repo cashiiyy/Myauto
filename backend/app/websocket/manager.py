@@ -33,41 +33,64 @@ class ConnectionManager:
         if self._pubsub_task and not self._pubsub_task.done():
             return
 
-        try:
-            from app.redis.client import get_redis
-            redis_client = await get_redis()
-            self._pubsub = redis_client.pubsub()
-            await self._pubsub.psubscribe("ws:channel:*", RedisKeys.WS_BROADCAST_CHANNEL)
-            self._pubsub_task = asyncio.create_task(self._listen_pubsub())
-            logger.info("WebSocket Redis Pub/Sub fan-out listener started.")
-        except Exception as e:
-            logger.warning("Could not start Redis Pub/Sub listener (single-worker mode): %s", e)
+        self._pubsub_task = asyncio.create_task(self._listen_pubsub())
+        logger.info("[REDIS DIAG] WebSocket Redis Pub/Sub listener task created.")
 
     async def _listen_pubsub(self):
-        """Worker background loop receiving messages published by other workers."""
-        try:
-            async for message in self._pubsub.listen():
-                if message["type"] not in ("pmessage", "message"):
-                    continue
+        """Worker background loop receiving messages with automatic reconnection."""
+        backoff = 1.0
+        while True:
+            try:
+                from app.redis.client import get_redis
+                redis_client = await get_redis()
+                self._pubsub = redis_client.pubsub()
+                await self._pubsub.psubscribe("ws:channel:*", RedisKeys.WS_BROADCAST_CHANNEL)
+                logger.info(
+                    "[REDIS DIAG] Pub/Sub subscribed=True to channels: ws:channel:*, %s",
+                    RedisKeys.WS_BROADCAST_CHANNEL,
+                )
+                backoff = 1.0  # Reset backoff on successful subscription
 
-                channel = message["channel"]
-                data_str = message["data"]
+                async for message in self._pubsub.listen():
+                    if message["type"] not in ("pmessage", "message"):
+                        continue
 
-                try:
-                    payload = json.loads(data_str) if isinstance(data_str, str) else data_str
-                except Exception:
-                    continue
+                    channel = message["channel"]
+                    data_str = message["data"]
 
-                if channel == RedisKeys.WS_BROADCAST_CHANNEL:
-                    await self._send_local_broadcast(payload)
-                elif channel.startswith("ws:channel:"):
-                    target_uid = channel[len("ws:channel:"):]
-                    logger.info("[DIAG][Manager] Pub/Sub received message for target_uid=%s (type=%s)", target_uid, payload.get("type"))
-                    await self._send_local(target_uid, payload)
-        except asyncio.CancelledError:
-            pass
-        except Exception as exc:
-            logger.error("Redis Pub/Sub listener error: %s", exc)
+                    try:
+                        payload = json.loads(data_str) if isinstance(data_str, str) else data_str
+                    except Exception:
+                        continue
+
+                    if channel == RedisKeys.WS_BROADCAST_CHANNEL:
+                        await self._send_local_broadcast(payload)
+                    elif channel.startswith("ws:channel:"):
+                        target_uid = channel[len("ws:channel:"):]
+                        logger.info(
+                            "[DIAG][Manager] Pub/Sub received message for target_uid=%s (type=%s)",
+                            target_uid,
+                            payload.get("type"),
+                        )
+                        await self._send_local(target_uid, payload)
+
+            except asyncio.CancelledError:
+                logger.info("[REDIS DIAG] Pub/Sub listener task cancelled.")
+                break
+            except Exception as exc:
+                logger.warning(
+                    "[REDIS DIAG] Pub/Sub listener disconnected: %s. Reconnecting in %.1fs...",
+                    exc,
+                    backoff,
+                )
+                if self._pubsub:
+                    try:
+                        await self._pubsub.close()
+                    except Exception:
+                        pass
+                    self._pubsub = None
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 30.0)
 
     async def stop_pubsub_listener(self):
         """Stop Pub/Sub listener on shutdown."""

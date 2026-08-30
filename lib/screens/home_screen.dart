@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../config/app_config.dart';
@@ -251,37 +254,55 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
+  void _showDiagnosticsSheet(String role) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _DiagnosticsSheet(
+        role: role,
+        driverService: _driverService,
+      ),
+    );
+  }
+
   Widget _connectionBar(Color color, {String? label}) {
     return Positioned(
       top: MediaQuery.of(context).padding.top + 4,
       left: 48,
       right: 48,
-      child: AnimatedOpacity(
-        opacity: 1.0,
-        duration: const Duration(milliseconds: 400),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.92),
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [BoxShadow(color: color.withValues(alpha: 0.3), blurRadius: 8)],
+      child: GestureDetector(
+        onTap: () {
+          final user = ref.read(currentUserProvider).value;
+          _showDiagnosticsSheet(user?.role ?? 'passenger');
+        },
+        child: AnimatedOpacity(
+          opacity: 1.0,
+          duration: const Duration(milliseconds: 400),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.92),
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [BoxShadow(color: color.withValues(alpha: 0.3), blurRadius: 8)],
+            ),
+            child: label != null
+                ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const SizedBox(
+                        width: 10, height: 10,
+                        child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(label,
+                          style: GoogleFonts.inter(
+                              fontSize: 11, color: Colors.white, fontWeight: FontWeight.w600)),
+                    ],
+                  )
+                : const SizedBox(height: 3),
           ),
-          child: label != null
-              ? Row(
-                  mainAxisSize: MainAxisSize.min,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const SizedBox(
-                      width: 10, height: 10,
-                      child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(label,
-                        style: GoogleFonts.inter(
-                            fontSize: 11, color: Colors.white, fontWeight: FontWeight.w600)),
-                  ],
-                )
-              : const SizedBox(height: 3),
         ),
       ),
     );
@@ -532,6 +553,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 }
               },
               child: const Icon(Icons.my_location, color: Colors.black87),
+            ),
+          ),
+          Positioned(
+            top: MediaQuery.of(context).padding.top + (role == 'passenger' ? 172 : 120),
+            right: 20,
+            child: FloatingActionButton(
+              heroTag: 'diag',
+              backgroundColor: Colors.white.withValues(alpha: 0.95),
+              elevation: 4, mini: true,
+              onPressed: () => _showDiagnosticsSheet(role),
+              child: const Icon(Icons.analytics_outlined, color: Colors.blueAccent, size: 20),
             ),
           ),
           Positioned(
@@ -1038,3 +1070,319 @@ class _InfoRow extends StatelessWidget {
     );
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Real-Time System Diagnostics Modal Sheet
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _DiagnosticsSheet extends ConsumerStatefulWidget {
+  final String role;
+  final DriverLocationService? driverService;
+
+  const _DiagnosticsSheet({
+    required this.role,
+    this.driverService,
+  });
+
+  @override
+  ConsumerState<_DiagnosticsSheet> createState() => _DiagnosticsSheetState();
+}
+
+class _DiagnosticsSheetState extends ConsumerState<_DiagnosticsSheet> {
+  String? _healthStatus;
+  bool _pinging = false;
+
+  Future<void> _pingHealth() async {
+    setState(() {
+      _pinging = true;
+      _healthStatus = 'Pinging...';
+    });
+    final stopwatch = Stopwatch()..start();
+    try {
+      final ok = await ref.read(backendApiClientProvider).checkHealth();
+      stopwatch.stop();
+      if (mounted) {
+        setState(() {
+          _pinging = false;
+          _healthStatus = ok
+              ? '✅ 200 OK (${stopwatch.elapsedMilliseconds}ms)'
+              : '❌ Unhealthy (${stopwatch.elapsedMilliseconds}ms)';
+        });
+      }
+    } catch (e) {
+      stopwatch.stop();
+      if (mounted) {
+        setState(() {
+          _pinging = false;
+          _healthStatus = '❌ Failed: $e';
+        });
+      }
+    }
+  }
+
+  void _copyToClipboard(BuildContext context, Map<String, dynamic> data) {
+    Clipboard.setData(ClipboardData(text: data.toString()));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Diagnostics copied to clipboard!')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final user = ref.watch(currentUserProvider).value;
+    final authUid = FirebaseAuth.instance.currentUser?.uid ?? 'Not authenticated';
+    final location = ref.watch(currentLocationProvider).value;
+    final wsState = ref.watch(wsConnectionStateProvider).valueOrNull ?? WsConnectionState.disconnected;
+    final rideAction = ref.watch(rideActionControllerProvider);
+    final incomingRequest = ref.watch(incomingRideRequestProvider);
+    final nearbyDrivers = ref.watch(backendDriversProvider).drivers;
+
+    final isDevUrl = AppConfig.backendUrl.contains('localhost') ||
+        AppConfig.backendUrl.contains('127.0.0.1') ||
+        AppConfig.backendUrl.contains('10.0.2.2') ||
+        AppConfig.backendUrl.contains('192.168.');
+
+    final summary = {
+      'role': widget.role,
+      'uid': authUid,
+      'rest_url': AppConfig.backendUrl,
+      'ws_url': AppConfig.backendWsUrl,
+      'ws_state': wsState.name,
+      'lat': location?.latitude,
+      'lng': location?.longitude,
+      'accuracy_m': location?.accuracy,
+      'ride_status': rideAction.status.name,
+      'backend_request_id': rideAction.backendRequestId,
+      'matched_driver_uid': rideAction.matchedDriverUid,
+      'incoming_request_id': incomingRequest?.rideId,
+      'nearby_drivers_count': nearbyDrivers.length,
+    };
+
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.85,
+      decoration: BoxDecoration(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        children: [
+          // Header handle & title
+          Container(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+            child: Column(
+              children: [
+                Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade400,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.analytics_outlined, color: Colors.blueAccent, size: 22),
+                        const SizedBox(width: 8),
+                        Text(
+                          'System Diagnostics',
+                          style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.copy, size: 20),
+                          tooltip: 'Copy JSON Summary',
+                          onPressed: () => _copyToClipboard(context, summary),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, size: 20),
+                          onPressed: () => Navigator.of(context).pop(),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                // ── Card 1: Identity & Role ──────────────────────────────────
+                _diagCard(
+                  title: 'Device Identity & Role',
+                  icon: Icons.person_outline,
+                  children: [
+                    _diagRow('Authoritative Role', widget.role.toUpperCase(),
+                        highlight: true,
+                        color: widget.role == 'driver' ? Colors.orange.shade700 : Colors.blue.shade700),
+                    _diagRow('Firebase UID', authUid),
+                    _diagRow('Display Name', user?.name ?? 'None'),
+                    _diagRow('Phone', user?.phone ?? 'None'),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // ── Card 2: Endpoints & Connectivity ─────────────────────────
+                _diagCard(
+                  title: 'Backend Endpoints & Transport',
+                  icon: Icons.cloud_outlined,
+                  children: [
+                    _diagRow('REST URL', AppConfig.backendUrl),
+                    _diagRow('WebSocket URL', AppConfig.backendWsUrl),
+                    _diagRow('Target Environment', isDevUrl ? '⚠️ LOCAL/DEV' : '🌐 PUBLIC MULTI-NETWORK',
+                        color: isDevUrl ? Colors.orange : Colors.green.shade700),
+                    _diagRow('WebSocket State', wsState.name.toUpperCase(),
+                        color: wsState == WsConnectionState.connected ? Colors.green.shade700 : Colors.red),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        ElevatedButton.icon(
+                          onPressed: _pinging ? null : _pingHealth,
+                          icon: _pinging
+                              ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                              : const Icon(Icons.network_ping, size: 16),
+                          label: const Text('Ping /health'),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            textStyle: const TextStyle(fontSize: 12),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        if (_healthStatus != null)
+                          Expanded(
+                            child: Text(
+                              _healthStatus!,
+                              style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // ── Card 3: GPS & Pipeline ───────────────────────────────────
+                _diagCard(
+                  title: 'Live GPS & Location Pipeline',
+                  icon: Icons.gps_fixed,
+                  children: [
+                    _diagRow('Latitude', location?.latitude.toStringAsFixed(6) ?? 'None'),
+                    _diagRow('Longitude', location?.longitude.toStringAsFixed(6) ?? 'None'),
+                    _diagRow('Accuracy', '${location?.accuracy.toStringAsFixed(1) ?? 'None'} m'),
+                    _diagRow('Speed', '${location?.speed.toStringAsFixed(1) ?? 'None'} m/s'),
+                    _diagRow('Heading', '${location?.heading.toStringAsFixed(1) ?? 'None'}°'),
+                    if (widget.role == 'driver') ...[
+                      const Divider(),
+                      _diagRow('Driver Publisher', widget.driverService?.isRunning == true ? 'Active 🟢' : 'Stopped 🔴'),
+                      _diagRow('GPS Sequence', '${widget.driverService?.sequence ?? 0}'),
+                      _diagRow('Last Send Status', widget.driverService?.lastSendStatus ?? 'None'),
+                      _diagRow('Last Sent Time', widget.driverService?.lastSentTime?.toLocal().toString().split('.').first ?? 'None'),
+                    ] else ...[
+                      const Divider(),
+                      _diagRow('Nearby Drivers Count', '${nearbyDrivers.length}'),
+                      if (nearbyDrivers.isNotEmpty)
+                        ...nearbyDrivers.map((d) => _diagRow(
+                              '🛺 Driver ${d.driverUid.substring(0, math.min(6, d.driverUid.length))}',
+                              '${d.distanceKm.toStringAsFixed(2)}km | ${d.isAvailable ? "AVAILABLE" : "BUSY"} | ${d.freshness}',
+                            )),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // ── Card 4: Ride Request State ──────────────────────────────
+                _diagCard(
+                  title: 'Ride State & Matches',
+                  icon: Icons.local_taxi_outlined,
+                  children: [
+                    _diagRow('Ride Action Status', rideAction.status.name.toUpperCase()),
+                    _diagRow('Backend Request ID', rideAction.backendRequestId ?? 'None'),
+                    _diagRow('Matched Driver UID', rideAction.matchedDriverUid ?? 'None'),
+                    _diagRow('Target Driver UID', rideAction.selectedDriverUid ?? 'None'),
+                    _diagRow('Match ID', rideAction.matchId ?? 'None'),
+                    _diagRow('Message', rideAction.message ?? 'None'),
+                    if (incomingRequest != null) ...[
+                      const Divider(),
+                      _diagRow('Incoming Ride ID', incomingRequest.rideId ?? 'None', color: Colors.blue.shade700),
+                      _diagRow('Passenger Name', incomingRequest.payload['passenger_name']?.toString() ?? 'None'),
+                      _diagRow('Expires At', incomingRequest.payload['expires_at']?.toString() ?? 'None'),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _diagCard({
+    required String title,
+    required IconData icon,
+    required List<Widget> children,
+  }) {
+    return Card(
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 18, color: Colors.blueGrey),
+                const SizedBox(width: 8),
+                Text(
+                  title,
+                  style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ...children,
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _diagRow(String label, String value, {bool highlight = false, Color? color}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 140,
+            child: Text(
+              label,
+              style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                color: color ?? (highlight ? Colors.blue.shade800 : Colors.black87),
+                fontWeight: highlight ? FontWeight.bold : FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+

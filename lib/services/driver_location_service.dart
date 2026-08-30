@@ -23,6 +23,15 @@ class DriverLocationService with WidgetsBindingObserver {
   StreamSubscription<Position>? _positionSub;
   bool _running = false;
   int _sequence = 0;
+  Position? _lastPosition;
+  DateTime? _lastSentTime;
+  String _lastSendStatus = 'Initialized';
+
+  Position? get lastPosition => _lastPosition;
+  DateTime? get lastSentTime => _lastSentTime;
+  String get lastSendStatus => _lastSendStatus;
+  int get sequence => _sequence;
+  bool get isRunning => _running;
 
   static const _locationSettings = LocationSettings(
     accuracy: LocationAccuracy.high,
@@ -89,10 +98,12 @@ class DriverLocationService with WidgetsBindingObserver {
   }
 
   Future<void> _onPosition(Position pos) async {
+    _lastPosition = pos;
+    final ageMs = DateTime.now().millisecondsSinceEpoch - pos.timestamp.millisecondsSinceEpoch;
     debugPrint(
-      '🟢 [DriverService] GPS: ${pos.latitude}, ${pos.longitude} '
-      'acc=${pos.accuracy.toStringAsFixed(1)}m '
-      'speed=${pos.speed.toStringAsFixed(1)}m/s',
+      '🟢 [DIAG][DriverService] GPS update: lat=${pos.latitude}, lng=${pos.longitude}, '
+      'acc=${pos.accuracy.toStringAsFixed(1)}m, speed=${pos.speed.toStringAsFixed(1)}m/s, '
+      'heading=${pos.heading.toStringAsFixed(1)}°, age=${ageMs}ms, seq=${_sequence + 1}',
     );
 
     // IMPORTANT: send RAW coordinates — never modify before sending.
@@ -111,9 +122,12 @@ class DriverLocationService with WidgetsBindingObserver {
 
     try {
       await _api.updateLocation(payload);
-      debugPrint('🟢 [DriverService] Location sent to backend ✅');
+      _lastSentTime = DateTime.now();
+      _lastSendStatus = 'Success (seq: $_sequence)';
+      debugPrint('🟢 [DIAG][DriverService] Location sent to backend successfully ✅ (seq: $_sequence)');
     } catch (e) {
-      debugPrint('🔴 [DriverService] Location send failed: $e');
+      _lastSendStatus = 'Failed: $e';
+      debugPrint('🔴 [DIAG][DriverService] Location send failed: $e');
     }
   }
 

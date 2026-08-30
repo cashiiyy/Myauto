@@ -95,7 +95,7 @@ class BackendApiClient {
       },
     ));
 
-    _dio.interceptors.add(_AuthInterceptor(_auth));
+    _dio.interceptors.add(_AuthInterceptor(_dio, _auth));
     _dio.interceptors.add(LogInterceptor(
       requestBody: false,
       responseBody: false,
@@ -353,9 +353,10 @@ class BackendApiClient {
 /// Injects the Firebase ID token into every request.
 /// On 401, refreshes the token and retries once.
 class _AuthInterceptor extends Interceptor {
+  final Dio _dio;
   final FirebaseAuth? _auth;
 
-  _AuthInterceptor(this._auth);
+  _AuthInterceptor(this._dio, this._auth);
 
   @override
   Future<void> onRequest(
@@ -380,8 +381,12 @@ class _AuthInterceptor extends Interceptor {
         final freshToken = await _auth!.currentUser!.getIdToken(true);
         if (freshToken != null) {
           final opts = err.requestOptions;
+          if (opts.extra['is_retry'] == true) {
+             return handler.next(err);
+          }
           opts.headers['Authorization'] = 'Bearer $freshToken';
-          final cloned = await Dio().fetch(opts);
+          opts.extra['is_retry'] = true;
+          final cloned = await _dio.fetch(opts);
           return handler.resolve(cloned);
         }
       } catch (_) {

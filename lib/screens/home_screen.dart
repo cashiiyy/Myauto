@@ -31,7 +31,28 @@ import '../widgets/auto_details_sheet.dart';
 import '../widgets/destination_search_bar.dart';
 import 'activity_screen.dart';
 import 'profile_screen.dart';
+import 'profile_screen.dart';
 import '../models/user_model.dart';
+import '../services/routing/routing_service.dart';
+
+// ── Map State ────────────────────────────────────────────────────────────────
+final mapBoundsProvider = StateProvider<LatLngBounds?>((ref) => null);
+
+final routeProvider = FutureProvider<RouteResult?>((ref) async {
+  final user = ref.watch(currentUserProvider).value;
+  if (user?.role != 'passenger') return null;
+
+  final posAsync = ref.watch(currentLocationProvider);
+  final dest = ref.watch(destinationProvider);
+
+  if (posAsync.value == null || dest == null) return null;
+
+  final pos = LatLng(posAsync.value!.latitude, posAsync.value!.longitude);
+  final destPos = LatLng(dest.latitude, dest.longitude);
+
+  final routing = createRoutingService();
+  return routing.getRoute(pos, destPos);
+});
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -1158,6 +1179,19 @@ class _InfoRow extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Real-Time System Diagnostics Modal Sheet
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _DiagnosticsSheet extends ConsumerStatefulWidget {
+  final String role;
+  final DriverLocationService? driverService;
+
+  const _DiagnosticsSheet({
+    required this.role,
     this.driverService,
   });
 

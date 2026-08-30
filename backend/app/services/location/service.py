@@ -71,8 +71,38 @@ async def process_driver_location(
     
     await redis.hset(key, mapping=mapping)
     
-    # 3. Refresh TTLs on presence, availability, and location keys
+    # 3. Handle availability state transition
+    from app.services.availability.service import update_driver_state, get_driver_availability
+    
+    current_state = await get_driver_availability(redis, driver_uid)
+    if current_state in (None, "OFFLINE", "STALE"):
+        if freshness in ("LIVE", "DELAYED"):
+            await update_driver_state(redis, driver_uid, "AVAILABLE")
+            current_state = "AVAILABLE"
+        else:
+            logger.warning("Driver %s location update is %s, not transitioning to AVAILABLE", driver_uid, freshness)
+            
+    # 4. Refresh TTLs on presence, availability, and location keys
     await refresh_driver_ttl(redis, driver_uid)
+
+    # Structured logging for telemetry
+    import os
+    import socket
+    import json
+    from app.core.config import get_settings
+    settings = get_settings()
+    
+    log_data = {
+        "user_uid": driver_uid,
+        "role": "driver",
+        "latitude": update.latitude,
+        "longitude": update.longitude,
+        "timestamp": update.captured_at,
+        "backend_instance": f"{socket.gethostname()}:{os.getpid()}",
+        "location_state": freshness,
+        "availability_state": current_state or "OFFLINE"
+    }
+    logger.info("[Telemetry] Structured Location Update: %s", json.dumps(log_data))
 
     return stored
 
@@ -111,5 +141,24 @@ async def process_passenger_location(
     mapping = {k: str(v) for k, v in stored.model_dump().items() if v is not None}
     await redis.hset(key, mapping=mapping)
     await redis.expire(key, 60)  # Passenger TTL
+
+    # Structured logging for telemetry
+    import os
+    import socket
+    import json
+    from app.core.config import get_settings
+    settings = get_settings()
+
+    log_data = {
+        "user_uid": passenger_uid,
+        "role": "passenger",
+        "latitude": update.latitude,
+        "longitude": update.longitude,
+        "timestamp": update.captured_at,
+        "backend_instance": f"{socket.gethostname()}:{os.getpid()}",
+        "location_state": freshness,
+        "availability_state": "N/A"
+    }
+    logger.info("[Telemetry] Structured Location Update: %s", json.dumps(log_data))
 
     return stored

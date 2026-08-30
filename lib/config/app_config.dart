@@ -20,13 +20,13 @@ class AppConfig {
   // ── Backend HTTP base URL ─────────────────────────────────────────────────
   static const String backendUrl = String.fromEnvironment(
     'BACKEND_URL',
-    defaultValue: 'https://api.myauto.app',
+    defaultValue: 'https://faculty-employee-shuffling.ngrok-free.dev',
   );
 
   // ── Backend WebSocket URL ─────────────────────────────────────────────────
   static const String backendWsUrl = String.fromEnvironment(
     'BACKEND_WS_URL',
-    defaultValue: 'wss://api.myauto.app/ws',
+    defaultValue: 'wss://faculty-employee-shuffling.ngrok-free.dev/ws',
   );
 
   // ── Mock mode bypass ─────────────────────────────────────────────────────

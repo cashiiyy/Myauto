@@ -63,7 +63,7 @@ class NearbyDriverModel {
     );
   }
 
-  bool get isStale => freshness == 'STALE' || freshness == 'OFFLINE';
+  bool get isStale => freshness == 'OFFLINE';
 
   @override
   String toString() =>

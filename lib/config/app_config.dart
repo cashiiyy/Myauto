@@ -70,9 +70,58 @@ class AppConfig {
   static const double nearbyDriverRadiusKm = 2.0;
 
   // ── Map rendering mode & tiles ────────────────────────────────────────────
-  /// Controls which map renderer is used.
-  /// 'flutter_map' (default) — uses flutter_map + high-res styled tiles.
-  /// 'maplibre'             — uses MapLibre GL vector tiles (requires vector style URL).
+  /// Controls which map tile provider is used: 'carto', 'maptiler', or 'osm'.
+  static const String mapProvider = String.fromEnvironment(
+    'MAP_PROVIDER',
+    defaultValue: 'carto',
+  );
+
+  /// MapTiler API Key (injected via --dart-define=MAPTILER_API_KEY=...)
+  static const String maptilerApiKey = String.fromEnvironment(
+    'MAPTILER_API_KEY',
+    defaultValue: '',
+  );
+
+  /// The CARTO Location Data Services API key (optional for public tiles).
+  static const String cartoBasemapApiKey = String.fromEnvironment(
+    'CARTO_BASEMAP_API_KEY',
+    defaultValue: '',
+  );
+
+  /// High-resolution styled map tile template.
+  static String get tileUrl {
+    switch (mapProvider.toLowerCase()) {
+      case 'maptiler':
+        if (maptilerApiKey.isNotEmpty) {
+          return 'https://api.maptiler.com/maps/streets-v2/{z}/{x}/{y}@2x.png?key=$maptilerApiKey';
+        }
+        // Fallback to OSM if key is missing
+        return 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+
+      case 'osm':
+        return 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+
+      case 'carto':
+      default:
+        final keyParam = cartoBasemapApiKey.isNotEmpty ? '?key=$cartoBasemapApiKey' : '';
+        return 'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png$keyParam';
+    }
+  }
+
+  /// Attribution text for the active tile provider
+  static String get tileAttribution {
+    switch (mapProvider.toLowerCase()) {
+      case 'maptiler':
+        return '© MapTiler © OpenStreetMap contributors';
+      case 'osm':
+        return '© OpenStreetMap contributors';
+      case 'carto':
+      default:
+        return '© CARTO © OpenStreetMap contributors';
+    }
+  }
+
+  /// Controls which map renderer is used ('flutter_map' or 'maplibre').
   static const String mapMode = String.fromEnvironment(
     'MAP_MODE',
     defaultValue: 'flutter_map',
@@ -82,21 +131,6 @@ class AppConfig {
   static const String mapStyleUrl = String.fromEnvironment(
     'MAP_STYLE_URL',
     defaultValue: 'https://demotiles.maplibre.org/style.json',
-  );
-
-  /// High-resolution CartoDB Voyager styled map tile template.
-  /// Clean, modern, high-contrast city map rendering.
-  static String get tileUrl {
-    final baseUrl = 'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png';
-    return cartoBasemapApiKey.isNotEmpty 
-        ? '$baseUrl?api_key=$cartoBasemapApiKey' 
-        : baseUrl;
-  }
-
-  /// The CARTO Location Data Services API key for basemaps.
-  static const String cartoBasemapApiKey = String.fromEnvironment(
-    'CARTO_BASEMAP_API_KEY',
-    defaultValue: '',
   );
 
   // ── Real-time transport mode ──────────────────────────────────────────────

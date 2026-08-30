@@ -127,7 +127,10 @@ class BackendDriversNotifier extends StateNotifier<BackendDriversState> {
 
   Future<void> _poll() async {
     final position = _ref.read(currentLocationProvider).valueOrNull;
-    if (position == null) return;
+    if (position == null) {
+      debugPrint('[MAP DIAG] _poll skipped: currentLocationProvider is null');
+      return;
+    }
 
     final uid = _ref.read(authStateProvider).valueOrNull?.uid;
     final apiClient = _ref.read(backendApiClientProvider);
@@ -143,6 +146,17 @@ class BackendDriversNotifier extends StateNotifier<BackendDriversState> {
       final filtered =
           uid != null ? drivers.where((d) => d.driverUid != uid).toList() : drivers;
 
+      debugPrint(
+        '🛺 [MAP DIAG] nearby_drivers_http_status=200 nearby_drivers_count=${filtered.length} '
+        'my_lat=${position.latitude.toStringAsFixed(5)} my_lng=${position.longitude.toStringAsFixed(5)}',
+      );
+      for (final d in filtered) {
+        debugPrint(
+          '   ↳ [MAP DIAG] driver_uid=${d.driverUid} lat=${d.latitude} lng=${d.longitude} '
+          'dist_km=${d.distanceKm.toStringAsFixed(2)} freshness=${d.freshness} is_available=${d.isAvailable}',
+        );
+      }
+
       state = state.copyWith(
         drivers: filtered,
         isLoading: false,
@@ -150,7 +164,7 @@ class BackendDriversNotifier extends StateNotifier<BackendDriversState> {
         lastUpdated: DateTime.now(),
       );
     } catch (e) {
-      debugPrint('[BackendDrivers] Poll failed: $e');
+      debugPrint('🔴 [MAP DIAG] nearby_drivers_poll_failed: $e');
       // Keep stale data visible — just note the error
       state = state.copyWith(error: e.toString(), isLoading: false);
     }

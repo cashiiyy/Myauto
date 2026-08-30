@@ -48,29 +48,62 @@ def init_firebase() -> firebase_admin.App:
     if _firebase_app is not None:
         return _firebase_app
 
+    # 1. Check if default app is already initialized
+    try:
+        _firebase_app = firebase_admin.get_app()
+        return _firebase_app
+    except ValueError:
+        pass
+
     settings = get_settings()
-    sa_path: Path = settings.firebase_service_account_abs
+    
+    # 2. Look for explicit service account credential file
+    cred = None
+    candidate_paths = [
+        getattr(settings, "firebase_credentials_path", None),
+        getattr(settings, "firebase_service_account_path", None),
+        "secrets/serviceAccountKey.json",
+        "secrets/firebase-service-account.json",
+        "/app/secrets/firebase-service-account.json",
+        "/app/secrets/serviceAccountKey.json",
+    ]
 
-    if sa_path.exists():
-        cred = credentials.Certificate(str(sa_path))
-        logger.info("Firebase Admin SDK: using service account from %s", sa_path)
-    else:
-        # Fallback for CI / testing: use Application Default Credentials
-        cred = credentials.ApplicationDefault()
-        logger.warning(
-            "Service account not found at %s — using ApplicationDefault credentials. "
-            "This is expected in test environments only.",
-            sa_path,
+    for p in candidate_paths:
+        if p and Path(p).exists():
+            try:
+                cred = credentials.Certificate(str(p))
+                logger.info("[AUTH DIAG] Firebase Admin SDK: loaded certificate from %s", p)
+                break
+            except Exception as e:
+                logger.warning("[AUTH DIAG] Failed loading certificate at %s: %s", p, e)
+
+    # 3. Fallback: ApplicationDefault or Project ID options
+    project_id = getattr(settings, "firebase_project_id", "myauto-493fc")
+    if cred is None:
+        try:
+            cred = credentials.ApplicationDefault()
+            logger.info("[AUTH DIAG] Using ApplicationDefault credentials for project %s", project_id)
+        except Exception:
+            cred = None
+
+    try:
+        if cred is not None:
+            _firebase_app = firebase_admin.initialize_app(
+                cred,
+                {"projectId": project_id},
+            )
+        else:
+            _firebase_app = firebase_admin.initialize_app(
+                options={"projectId": project_id},
+            )
+        logger.info(
+            "[AUTH DIAG] Firebase Admin SDK initialised successfully for project: %s",
+            project_id,
         )
+    except Exception as e:
+        logger.error("[AUTH DIAG] Firebase initialize_app failed: %s", e)
+        raise
 
-    _firebase_app = firebase_admin.initialize_app(
-        cred,
-        {"projectId": settings.firebase_project_id},
-    )
-    logger.info(
-        "Firebase Admin SDK initialised for project: %s",
-        settings.firebase_project_id,
-    )
     return _firebase_app
 
 
@@ -106,33 +139,66 @@ def _verify_id_token(raw_token: str) -> VerifiedToken:
     Raises HTTPException 401 on any verification failure.
     Tokens are verified against Firebase's public keys — no local secret needed.
     """
+    if not raw_token or not raw_token.strip():
+        logger.warning("[AUTH DIAG] token_received=False verification_success=False")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token cannot be empty.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     try:
         init_firebase()
         decoded = firebase_auth_module.verify_id_token(
             raw_token,
-            check_revoked=True,
+            check_revoked=False,
+            clock_skew_seconds=10,
         )
-    except firebase_auth_module.RevokedIdTokenError:
+        uid = decoded.get("uid", "")
+        logger.info(
+            "[AUTH DIAG] token_received=True verification_success=True verified_uid=%s",
+            uid,
+        )
+    except firebase_auth_module.RevokedIdTokenError as exc:
+        logger.warning(
+            "[AUTH DIAG] token_received=True verification_success=False "
+            "verification_exception_type=RevokedIdTokenError verification_exception_message=%s",
+            exc,
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has been revoked. Please sign in again.",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    except firebase_auth_module.ExpiredIdTokenError:
+    except firebase_auth_module.ExpiredIdTokenError as exc:
+        logger.warning(
+            "[AUTH DIAG] token_received=True verification_success=False "
+            "verification_exception_type=ExpiredIdTokenError verification_exception_message=%s",
+            exc,
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has expired. Please refresh your session.",
             headers={"WWW-Authenticate": "Bearer"},
         )
     except firebase_auth_module.InvalidIdTokenError as exc:
-        logger.debug("Invalid Firebase token: %s", exc)
+        logger.warning(
+            "[AUTH DIAG] token_received=True verification_success=False "
+            "verification_exception_type=InvalidIdTokenError verification_exception_message=%s",
+            exc,
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication token.",
             headers={"WWW-Authenticate": "Bearer"},
         )
     except Exception as exc:
-        logger.error("Unexpected token verification error: %s", exc)
+        logger.error(
+            "[AUTH DIAG] token_received=True verification_success=False "
+            "verification_exception_type=%s verification_exception_message=%s",
+            type(exc).__name__,
+            exc,
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication failed.",
@@ -156,19 +222,16 @@ async def get_current_user(
     """
     FastAPI dependency: extracts and verifies the Firebase ID token from the
     Authorization: Bearer <token> header.
-
-    Usage::
-
-        @router.get("/protected")
-        async def handler(user: VerifiedToken = Depends(get_current_user)):
-            ...
     """
-    if credentials is None:
+    if credentials is None or not credentials.credentials:
+        logger.warning("[AUTH DIAG] authorization_header_present=False verification_success=False")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authorization header is required.",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    logger.debug("[AUTH DIAG] authorization_header_present=True")
     return _verify_id_token(credentials.credentials)
 
 
@@ -176,9 +239,6 @@ async def get_current_user_ws(websocket: WebSocket) -> VerifiedToken:
     """
     WebSocket authentication helper.
     Reads the token from query param ?token=... or the Authorization header.
-
-    WebSocket clients cannot set arbitrary headers on most platforms so
-    we support both methods.
     """
     # 1. Try query parameter
     token = websocket.query_params.get("token")
@@ -190,6 +250,7 @@ async def get_current_user_ws(websocket: WebSocket) -> VerifiedToken:
             token = auth_header[7:].strip()
 
     if not token:
+        logger.warning("[AUTH DIAG] ws_token_present=False")
         await websocket.close(code=4001, reason="Missing authentication token")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
 

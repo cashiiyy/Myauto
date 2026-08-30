@@ -8,6 +8,7 @@ In production this should always be fetched from the DB; for the prototype
 we accept it from the body but validate it against the verified token.
 """
 
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, status
@@ -18,6 +19,7 @@ from app.redis.client import get_redis
 from app.schemas.location import LocationUpdate, LocationResponse, LocationUpdateWithRole
 from app.services.location.service import process_driver_location, process_passenger_location
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/location", tags=["Location"])
 
 
@@ -41,6 +43,16 @@ async def update_location(
         else:
             stored = await process_passenger_location(update, user.uid, redis)
 
+        logger.info(
+            "[LOCATION DIAG] role=%s uid=%s lat=%.6f lng=%.6f freshness=%s seq=%s saved_to_redis=True",
+            update.role,
+            user.uid,
+            update.latitude,
+            update.longitude,
+            stored.freshness,
+            update.sequence,
+        )
+
         server_ts = datetime.fromtimestamp(stored.received_at / 1000.0, tz=timezone.utc)
         return LocationResponse(
             accepted=True,
@@ -49,6 +61,12 @@ async def update_location(
             message="Location updated",
         )
     except ValueError as e:
+        logger.warning(
+            "[LOCATION DIAG] role=%s uid=%s update_rejected: %s",
+            update.role,
+            user.uid,
+            e,
+        )
         return LocationResponse(
             accepted=False,
             freshness="OFFLINE",

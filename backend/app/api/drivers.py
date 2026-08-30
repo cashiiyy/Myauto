@@ -6,6 +6,7 @@ GET /api/drivers/nearby — returns nearby drivers with their actual stored
 coordinates fetched from the Redis location hash.
 """
 
+import logging
 from fastapi import APIRouter, Depends
 import redis.asyncio as aioredis
 
@@ -15,6 +16,7 @@ from app.redis.geo import geo_search_drivers
 from app.redis.keys import RedisKeys
 from app.schemas.driver import NearbyDriverResponse
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/drivers", tags=["Drivers"])
 
 
@@ -35,6 +37,14 @@ async def get_nearby_drivers(
     Phone numbers are NEVER returned by this endpoint.
     """
     candidates = await geo_search_drivers(redis, lat, lng, radius_km)
+    logger.info(
+        "[NEARBY DIAG] query_by_uid=%s lat=%.6f lng=%.6f radius_km=%.1f candidates_found=%d",
+        user.uid,
+        lat,
+        lng,
+        radius_km,
+        len(candidates),
+    )
 
     responses = []
     for uid, dist_km in candidates:
@@ -43,7 +53,7 @@ async def get_nearby_drivers(
         loc_data = await redis.hgetall(loc_key)
 
         if not loc_data:
-            # Location key expired — driver has gone stale; skip
+            logger.debug("[NEARBY DIAG] driver_uid=%s excluded: LOCATION_MISSING (no redis hash)", uid)
             continue
 
         try:
@@ -52,17 +62,29 @@ async def get_nearby_drivers(
             freshness = loc_data.get("freshness", "STALE")
             heading = loc_data.get("heading_degrees")
             accuracy = loc_data.get("accuracy_meters")
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as exc:
+            logger.warning("[NEARBY DIAG] driver_uid=%s excluded: REDIS_DATA_INVALID (%s)", uid, exc)
             continue
 
         # Skip drivers whose location is too stale to be useful
         if freshness == "OFFLINE":
+            logger.debug("[NEARBY DIAG] driver_uid=%s excluded: OFFLINE", uid)
             continue
 
         # Check availability
         avail_key = RedisKeys.driver_availability(uid)
         driver_state = await redis.get(avail_key)
         is_available = driver_state == "AVAILABLE"
+
+        logger.info(
+            "[NEARBY DIAG] driver_uid=%s included: lat=%.6f lng=%.6f dist_km=%.2f freshness=%s state=%s",
+            uid,
+            driver_lat,
+            driver_lng,
+            dist_km,
+            freshness,
+            driver_state,
+        )
 
         responses.append(NearbyDriverResponse(
             driver_uid=uid,
@@ -75,4 +97,5 @@ async def get_nearby_drivers(
             is_available=is_available,
         ))
 
+    logger.info("[NEARBY DIAG] returned_count=%d", len(responses))
     return responses

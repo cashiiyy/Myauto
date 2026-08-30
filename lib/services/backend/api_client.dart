@@ -350,8 +350,8 @@ class BackendApiClient {
 
 // ── Auth Interceptor ──────────────────────────────────────────────────────────
 
-/// Injects the Firebase ID token into every request.
-/// On 401, refreshes the token and retries once.
+/// Injects the Firebase ID token into every authenticated request.
+/// On 401, refreshes the token once and retries using the same configured Dio instance.
 class _AuthInterceptor extends Interceptor {
   final Dio _dio;
   final FirebaseAuth? _auth;
@@ -363,10 +363,37 @@ class _AuthInterceptor extends Interceptor {
     RequestOptions options,
     RequestInterceptorHandler handler,
   ) async {
-    final token = await _getToken();
-    if (token != null) {
-      options.headers['Authorization'] = 'Bearer $token';
+    // Health checks do not require authentication
+    if (options.path == '/health' || options.path == '/ready') {
+      return handler.next(options);
     }
+
+    final isRetry = options.extra['is_retry'] == true;
+    final user = _auth?.currentUser;
+
+    if (user == null) {
+      debugPrint(
+        '⚠️ [AUTH DIAG] path=${options.path} firebase_user_present=false '
+        'authorization_header_present=false',
+      );
+    } else {
+      if (!isRetry) {
+        final token = await _getToken();
+        if (token != null && token.isNotEmpty) {
+          options.headers['Authorization'] = 'Bearer $token';
+          debugPrint(
+            '🔒 [AUTH DIAG] path=${options.path} firebase_user_present=true uid=${user.uid} '
+            'token_obtained=true authorization_header_present=true',
+          );
+        } else {
+          debugPrint(
+            '⚠️ [AUTH DIAG] path=${options.path} firebase_user_present=true uid=${user.uid} '
+            'token_obtained=false authorization_header_present=false',
+          );
+        }
+      }
+    }
+
     handler.next(options);
   }
 
@@ -375,31 +402,51 @@ class _AuthInterceptor extends Interceptor {
     DioException err,
     ErrorInterceptorHandler handler,
   ) async {
-    if (err.response?.statusCode == 401 && _auth?.currentUser != null) {
-      // Token may have expired — force refresh and retry once
+    final path = err.requestOptions.path;
+    final statusCode = err.response?.statusCode;
+    final isRetry = err.requestOptions.extra['is_retry'] == true;
+
+    debugPrint(
+      '❌ [AUTH DIAG] path=$path response_status=$statusCode is_retry=$isRetry',
+    );
+
+    if (statusCode == 401 && _auth?.currentUser != null && !isRetry) {
+      final user = _auth!.currentUser!;
+      debugPrint(
+        '🔄 [AUTH DIAG] path=$path 401 received. Triggering token_force_refresh=true for uid=${user.uid}',
+      );
+
       try {
-        final freshToken = await _auth!.currentUser!.getIdToken(true);
-        if (freshToken != null) {
+        final freshToken = await user.getIdToken(true);
+        if (freshToken != null && freshToken.isNotEmpty) {
           final opts = err.requestOptions;
-          if (opts.extra['is_retry'] == true) {
-             return handler.next(err);
-          }
           opts.headers['Authorization'] = 'Bearer $freshToken';
           opts.extra['is_retry'] = true;
-          final cloned = await _dio.fetch(opts);
-          return handler.resolve(cloned);
+
+          debugPrint(
+            '🚀 [AUTH DIAG] path=$path Retrying request with fresh token...',
+          );
+          final response = await _dio.fetch(opts);
+          debugPrint(
+            '✅ [AUTH DIAG] path=$path Retry successful! response_status=${response.statusCode}',
+          );
+          return handler.resolve(response);
         }
-      } catch (_) {
-        // Refresh failed — propagate original error
+      } catch (refreshErr) {
+        debugPrint(
+          '🔴 [AUTH DIAG] path=$path Token refresh or retry failed: $refreshErr',
+        );
       }
     }
+
     handler.next(err);
   }
 
   Future<String?> _getToken() async {
     try {
       return await _auth?.currentUser?.getIdToken();
-    } catch (_) {
+    } catch (e) {
+      debugPrint('⚠️ [AUTH DIAG] getIdToken error: $e');
       return null;
     }
   }

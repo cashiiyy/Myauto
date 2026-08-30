@@ -398,22 +398,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             initialZoom: 15.0,
             onTap: (_, __) => setState(() => _selectedAuto = null),
             children: [
-              if (AppConfig.cartoBasemapApiKey.isEmpty)
-                Center(
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    color: Colors.black87,
-                    child: const Text(
-                      'CARTO API KEY REQUIRED',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                )
-              else
-                TileLayer(
-                  urlTemplate: AppConfig.tileUrl,
-                  userAgentPackageName: 'com.myauto.com',
-                ),
+              TileLayer(
+                urlTemplate: AppConfig.tileUrl,
+                userAgentPackageName: 'com.myauto.com',
+                maxZoom: 20,
+                maxNativeZoom: 19,
+                retinaMode: RetinaMode.isHighDensity(context),
+              ),
 
               // ── Route Polyline (Passenger) ───────────────────────
               ...ref.watch(routeProvider).when(
@@ -424,8 +415,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       polylines: [
                         Polyline(
                           points: route.polyline,
-                          strokeWidth: 4.0,
-                          color: Colors.blue,
+                          strokeWidth: 4.5,
+                          color: const Color(0xFF2563EB),
                         ),
                       ],
                     )
@@ -439,8 +430,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 // ── Own position marker ──────────────────────────────
                 if (pos != null)
                   Marker(
-                    point: userLoc, width: 40, height: 40,
-                    child: const Icon(Icons.my_location, color: Colors.blue, size: 30),
+                    point: userLoc,
+                    width: 44,
+                    height: 44,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withValues(alpha: 0.2),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Center(
+                        child: Icon(Icons.my_location, color: Color(0xFF1D4ED8), size: 28),
+                      ),
+                    ),
                   ),
 
                 // ── Passenger sees nearby DRIVERS from backend (🛺) ──
@@ -450,30 +451,59 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     final isSelected = _selectedAuto?.id == d.driverUid;
                     return Marker(
                       point: LatLng(d.latitude, d.longitude),
-                      width: isSelected ? 60 : 50,
-                      height: isSelected ? 60 : 50,
+                      width: isSelected ? 64 : 52,
+                      height: isSelected ? 64 : 52,
                       child: GestureDetector(
                         onTap: () => _selectFromNearbyDriver(d, pos),
-                            child: Stack(alignment: Alignment.center, children: [
-                              Container(
-                                decoration: BoxDecoration(
-                                  color: d.isAvailable
-                                      ? Colors.green.withValues(alpha: 0.5)
-                                      : Colors.red.withValues(alpha: 0.4),
-                                  shape: BoxShape.circle,
-                                  border: isSelected
-                                      ? Border.all(color: Colors.black, width: 2)
-                                      : null,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            Container(
+                              width: isSelected ? 56 : 46,
+                              height: isSelected ? 56 : 46,
+                              decoration: BoxDecoration(
+                                color: d.isAvailable
+                                    ? const Color(0xFF10B981).withValues(alpha: 0.25)
+                                    : const Color(0xFFEF4444).withValues(alpha: 0.25),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: isSelected
+                                      ? Colors.black87
+                                      : (d.isAvailable ? const Color(0xFF059669) : const Color(0xFFDC2626)),
+                                  width: isSelected ? 2.5 : 1.5,
                                 ),
-                                width: isSelected ? 50 : 40,
-                                height: isSelected ? 50 : 40,
+                                boxShadow: const [
+                                  BoxShadow(
+                                    color: Colors.black26,
+                                    blurRadius: 4,
+                                    offset: Offset(0, 2),
+                                  ),
+                                ],
                               ),
-                              Text('🛺',
-                                  style: TextStyle(fontSize: isSelected ? 30 : 24)),
-                            ]),
-                          ),
-                        );
-                      }).whereType<Marker>().toList(),
+                            ),
+                            Text(
+                              '🛺',
+                              style: TextStyle(fontSize: isSelected ? 28 : 22),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }).whereType<Marker>().toList(),
+
+                // ── Destination marker pin ───────────────────────────
+                if (destination != null)
+                  Marker(
+                    point: LatLng(destination.latitude, destination.longitude),
+                    width: 50,
+                    height: 50,
+                    alignment: Alignment.topCenter,
+                    child: const Icon(
+                      Icons.location_on,
+                      color: Colors.redAccent,
+                      size: 44,
+                    ),
+                  ),
 
                     // ── Driver sees a pulse marker when a ride.requested event arrives
                     // (the accept/reject sheet handles the actual interaction)

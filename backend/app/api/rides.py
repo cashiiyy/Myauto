@@ -113,6 +113,7 @@ async def request_ride(
     request: CreateRideRequest,
     user: VerifiedToken = Depends(get_current_user),
     idempotency_header: Optional[str] = Header(None, alias="Idempotency-Key"),
+    correlation_id: Optional[str] = Header(None, alias="X-Correlation-ID"),
     redis: aioredis.Redis = Depends(get_redis),
     db: AsyncSession = Depends(get_db),
 ):
@@ -123,7 +124,7 @@ async def request_ride(
     if idempotency_header and not request.idempotency_key:
         request.idempotency_key = idempotency_header
 
-    result = await create_ride_request(db, redis, request, user.uid)
+    result = await create_ride_request(db, redis, request, user.uid, correlation_id)
     return RideRequestResponse(
         request_id=result["request_id"],
         status=result["status"],

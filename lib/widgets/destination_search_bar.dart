@@ -159,6 +159,7 @@ class _DestinationSearchBarState extends ConsumerState<DestinationSearchBar> {
 
   @override
   Widget build(BuildContext context) {
+    debugPrint('[Diagnostics] DestinationSearchBar build() called.');
     final destination = ref.watch(destinationProvider);
     final isLoading = ref.watch(_isLoadingProvider);
     final hasDestination = destination != null;

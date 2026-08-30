@@ -68,3 +68,5 @@ backend/secrets/
 *serviceAccountKey*.json
 
 *pdf
+
+*ps1

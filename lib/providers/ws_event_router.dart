@@ -51,8 +51,13 @@ class WsEventRouter extends Notifier<void> {
         final api = ref.read(backendApiClientProvider);
         final pendingEvent = await api.getDriverPendingRide();
         if (pendingEvent != null) {
-          _log('🔄 [DIAG] Recovered pending ride on reconnect: ${pendingEvent.rideId}');
-          ref.read(incomingRideRequestProvider.notifier).state = pendingEvent;
+          final currentRequest = ref.read(incomingRideRequestProvider);
+          if (currentRequest?.rideId == pendingEvent.rideId) {
+            _log('🔄 [DIAG] Pending ride already active: ${pendingEvent.rideId}. Ignoring duplicate.');
+          } else {
+            _log('🔄 [DIAG] Recovered pending ride on reconnect: ${pendingEvent.rideId}');
+            ref.read(incomingRideRequestProvider.notifier).state = pendingEvent;
+          }
         }
       } catch (e) {
         _log('[DIAG] Failed to query pending ride for driver: $e');
@@ -67,8 +72,13 @@ class WsEventRouter extends Notifier<void> {
     switch (event.type) {
       case BackendEventType.rideRequested:
         // Driver receives this — store it for the accept/reject sheet
-        _log('[DIAG] Driver received ride.requested! Updating incomingRideRequestProvider for ride=${event.rideId}');
-        ref.read(incomingRideRequestProvider.notifier).state = event;
+        final currentRequest = ref.read(incomingRideRequestProvider);
+        if (currentRequest?.rideId == event.rideId) {
+          _log('[DIAG] Duplicate ride.requested ignored for ride=${event.rideId}');
+        } else {
+          _log('[DIAG] Driver received ride.requested! Updating incomingRideRequestProvider for ride=${event.rideId}');
+          ref.read(incomingRideRequestProvider.notifier).state = event;
+        }
 
       case BackendEventType.rideMatched:
         // Passenger receives this — a driver has been found

@@ -333,50 +333,47 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // ── RTDB ride shares (still active for co-passenger feature) ───────────
     final sharesAsync = ref.watch(nearbyRideSharesStreamProvider);
 
+    final pos = locationAsync.value;
+    // Default to a fallback location if GPS is not yet available, so map renders.
+    final userLoc = pos != null ? LatLng(pos.latitude, pos.longitude) : const LatLng(8.5241, 76.9366); 
+
+    // Read destination for the pin marker (passenger-only, additive)
+    final destination = ref.watch(destinationProvider);
+
     return Stack(
       children: [
-        locationAsync.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) => Center(child: Text('Location error: $e')),
-          data: (position) {
-            if (position == null) {
-              return const Center(child: Text('Location unavailable. Check permissions.'));
-            }
-            final userLoc = LatLng(position.latitude, position.longitude);
-
-            // Read destination for the pin marker (passenger-only, additive)
-            final destination = ref.watch(destinationProvider);
-
-            return GestureDetector(
-              onTap: () { if (_selectedAuto != null) setState(() => _selectedAuto = null); },
-              child: MapAbstraction(
-                mapController: _mapController,
-                initialCenter: userLoc,
-                initialZoom: 15.0,
-                onTap: (_, __) => setState(() => _selectedAuto = null),
-                children: [
-                  TileLayer(
-                    urlTemplate: AppConfig.tileUrl,
-                    userAgentPackageName: 'com.myauto.com',
+        // ── Map always renders ──────────────────────────────────────────
+        GestureDetector(
+          onTap: () { if (_selectedAuto != null) setState(() => _selectedAuto = null); },
+          child: MapAbstraction(
+            mapController: _mapController,
+            initialCenter: userLoc,
+            initialZoom: 15.0,
+            onTap: (_, __) => setState(() => _selectedAuto = null),
+            children: [
+              TileLayer(
+                urlTemplate: AppConfig.tileUrl,
+                userAgentPackageName: 'com.myauto.com',
+              ),
+              MarkerLayer(markers: [
+                // ── Own position marker ──────────────────────────────
+                if (pos != null)
+                  Marker(
+                    point: userLoc, width: 40, height: 40,
+                    child: const Icon(Icons.my_location, color: Colors.blue, size: 30),
                   ),
-                  MarkerLayer(markers: [
-                    // ── Own position marker ──────────────────────────────
-                    Marker(
-                      point: userLoc, width: 40, height: 40,
-                      child: const Icon(Icons.my_location, color: Colors.blue, size: 30),
-                    ),
 
-                    // ── Passenger sees nearby DRIVERS from backend (🛺) ──
-                    if (role == 'passenger')
-                      ...backendDriversState.drivers.map((d) {
-                        if (d.isStale) return null; // filter stale
-                        final isSelected = _selectedAuto?.id == d.driverUid;
-                        return Marker(
-                          point: LatLng(d.latitude, d.longitude),
-                          width: isSelected ? 60 : 50,
-                          height: isSelected ? 60 : 50,
-                          child: GestureDetector(
-                            onTap: () => _selectFromNearbyDriver(d, position),
+                // ── Passenger sees nearby DRIVERS from backend (🛺) ──
+                if (role == 'passenger')
+                  ...backendDriversState.drivers.map((d) {
+                    if (d.isStale) return null; // filter stale
+                    final isSelected = _selectedAuto?.id == d.driverUid;
+                    return Marker(
+                      point: LatLng(d.latitude, d.longitude),
+                      width: isSelected ? 60 : 50,
+                      height: isSelected ? 60 : 50,
+                      child: GestureDetector(
+                        onTap: () => _selectFromNearbyDriver(d, pos),
                             child: Stack(alignment: Alignment.center, children: [
                               Container(
                                 decoration: BoxDecoration(
@@ -461,9 +458,40 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ]),
                 ],
               ),
-            );
-          },
-        ),
+            ),
+
+        // ── Location loading overlay ──────────────────────────────────────
+        if (locationAsync.isLoading && pos == null)
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 60,
+            left: 20, right: 20,
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.9),
+                borderRadius: BorderRadius.circular(8),
+                boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: const [
+                  SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                  SizedBox(width: 8),
+                  Text('Acquiring GPS location...'),
+                ],
+              ),
+            ),
+          ),
+        if (locationAsync.hasError)
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 60,
+            left: 20, right: 20,
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              color: Colors.red.shade100,
+              child: Text('Location error: ${locationAsync.error}'),
+            ),
+          ),
 
         // ── FABs ──────────────────────────────────────────────────────────
         if (_currentIndex == 0) ...[
@@ -472,11 +500,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           // Positioned at top of map, above connection banner, below FABs.
           // Hidden for drivers. Does not affect booking or ride logic.
           if (role == 'passenger') ...[
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 10,
-              left: 0, right: 0,
-              child: const DestinationSearchBar(),
-            ),
+            Builder(builder: (ctx) {
+              debugPrint('[Diagnostics] home_screen adding DestinationSearchBar to Stack. padding.top: ${MediaQuery.of(ctx).padding.top}');
+              return Positioned(
+                top: MediaQuery.of(ctx).padding.top + 10,
+                left: 0, right: 0,
+                child: const DestinationSearchBar(),
+              );
+            }),
           ] else ...[
             Positioned(
               top: MediaQuery.of(context).padding.top + 16,
@@ -1136,6 +1167,7 @@ class _DiagnosticsSheetState extends ConsumerState<_DiagnosticsSheet> {
     final rideAction = ref.watch(rideActionControllerProvider);
     final incomingRequest = ref.watch(incomingRideRequestProvider);
     final nearbyDrivers = ref.watch(backendDriversProvider).drivers;
+    final wsClient = ref.watch(wsClientProvider);
 
     final isDevUrl = AppConfig.backendUrl.contains('localhost') ||
         AppConfig.backendUrl.contains('127.0.0.1') ||
@@ -1216,6 +1248,18 @@ class _DiagnosticsSheetState extends ConsumerState<_DiagnosticsSheet> {
             child: ListView(
               padding: const EdgeInsets.all(16),
               children: [
+                // ── Card 0: Build Identity ──────────────────────────────────
+                _diagCard(
+                  title: 'Build Identity',
+                  icon: Icons.build_circle_outlined,
+                  children: [
+                    _diagRow('Build Timestamp', AppConfig.buildTimestamp),
+                    _diagRow('Git Commit', AppConfig.gitCommit),
+                    _diagRow('Realtime Mode', AppConfig.realtimeMode),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
                 // ── Card 1: Identity & Role ──────────────────────────────────
                 _diagCard(
                   title: 'Device Identity & Role',
@@ -1242,6 +1286,13 @@ class _DiagnosticsSheetState extends ConsumerState<_DiagnosticsSheet> {
                         color: isDevUrl ? Colors.orange : Colors.green.shade700),
                     _diagRow('WebSocket State', wsState.name.toUpperCase(),
                         color: wsState == WsConnectionState.connected ? Colors.green.shade700 : Colors.red),
+                    if (wsClient.connectedAt != null)
+                      _diagRow('Connected Since', wsClient.connectedAt!.toLocal().toString().split('.').first),
+                    if (wsClient.lastMessageAt != null)
+                      _diagRow('Last Msg Received', wsClient.lastMessageAt!.toLocal().toString().split('.').first),
+                    _diagRow('Reconnect Attempts', '${wsClient.reconnectCount}'),
+                    if (wsClient.lastError != null)
+                      _diagRow('Last WS Error', wsClient.lastError!, color: Colors.red),
                     const SizedBox(height: 8),
                     Row(
                       children: [

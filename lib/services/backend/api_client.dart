@@ -83,7 +83,7 @@ class BackendApiClient {
   int _locationSequence = 0;
 
   BackendApiClient({FirebaseAuth? auth})
-      : _auth = auth ?? (FirebaseAuth.instance) {
+      : _auth = auth {
     _dio = Dio(BaseOptions(
       baseUrl: AppConfig.backendUrl,
       connectTimeout: const Duration(seconds: 10),
@@ -167,6 +167,7 @@ class BackendApiClient {
     String? driverUid,
     String? passengerName,
     String? idempotencyKey,
+    String? correlationId,
     String? notes,
   }) async {
     if (AppConfig.mockMode) {
@@ -181,6 +182,9 @@ class BackendApiClient {
       final headers = <String, dynamic>{};
       if (idempotencyKey != null) {
         headers['Idempotency-Key'] = idempotencyKey;
+      }
+      if (correlationId != null) {
+        headers['X-Correlation-ID'] = correlationId;
       }
 
       final body = <String, dynamic>{

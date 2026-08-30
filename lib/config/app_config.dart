@@ -23,6 +23,17 @@ class AppConfig {
     defaultValue: 'https://faculty-employee-shuffling.ngrok-free.dev',
   );
 
+  // ── Build Identity ────────────────────────────────────────────────────────
+  static const String buildTimestamp = String.fromEnvironment(
+    'BUILD_TIMESTAMP',
+    defaultValue: 'Unknown (IDE/Local)',
+  );
+
+  static const String gitCommit = String.fromEnvironment(
+    'GIT_COMMIT',
+    defaultValue: 'Unknown',
+  );
+
   // ── Backend WebSocket URL ─────────────────────────────────────────────────
   static const String backendWsUrl = String.fromEnvironment(
     'BACKEND_WS_URL',

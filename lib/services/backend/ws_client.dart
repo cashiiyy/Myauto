@@ -40,7 +40,7 @@ class BackendWebSocketClient extends ChangeNotifier {
   final FirebaseAuth? _auth;
 
   BackendWebSocketClient({FirebaseAuth? auth})
-      : _auth = auth ?? FirebaseAuth.instance;
+      : _auth = auth;
 
   // ── State ─────────────────────────────────────────────────────────────────
   WsConnectionState _connectionState = WsConnectionState.disconnected;
@@ -59,6 +59,15 @@ class BackendWebSocketClient extends ChangeNotifier {
   bool _disposed = false;
   bool _intentionalDisconnect = false;
   int _reconnectAttempts = 0;
+
+  // Diagnostic state
+  DateTime? _connectedAt;
+  DateTime? _lastMessageAt;
+  String? _lastError;
+  int get reconnectCount => _reconnectAttempts;
+  DateTime? get connectedAt => _connectedAt;
+  DateTime? get lastMessageAt => _lastMessageAt;
+  String? get lastError => _lastError;
 
   // Event deduplication — keeps the last N event IDs
   final Set<String> _seenEventIds = {};
@@ -140,6 +149,8 @@ class BackendWebSocketClient extends ChangeNotifier {
       await _channel!.ready.timeout(const Duration(seconds: 10));
 
       _reconnectAttempts = 0;
+      _connectedAt = DateTime.now();
+      _lastError = null;
       _setConnectionState(WsConnectionState.connected);
       debugPrint('[WsClient] Connected ✅');
 
@@ -162,6 +173,7 @@ class BackendWebSocketClient extends ChangeNotifier {
 
   void _onMessage(dynamic raw) {
     if (_disposed) return;
+    _lastMessageAt = DateTime.now();
     try {
       final data = jsonDecode(raw as String) as Map<String, dynamic>;
       final event = BackendEvent.fromJson(data);
@@ -195,6 +207,7 @@ class BackendWebSocketClient extends ChangeNotifier {
 
   void _onError(Object error) {
     debugPrint('[WsClient] Stream error: $error');
+    _lastError = error.toString();
     _setConnectionState(WsConnectionState.error);
     _scheduleReconnect();
   }

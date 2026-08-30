@@ -29,6 +29,7 @@ dependencies:
   # ── Backend integration (Phase 2) ─────────────────────────────────────────
   web_socket_channel: ^2.4.0
   dio: ^5.4.3
+  uuid: ^4.6.0
   # ── New technology stack adapters ─────────────────────────────────────────
   # maplibre_gl: ^0.27.0  (verified latest on pub.dev, Aug 2026)
   #   Supports: Android ✅  iOS ✅  Web ✅

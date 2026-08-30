@@ -10,6 +10,9 @@ import '../providers/location_provider.dart';
 import '../providers/rtdb_provider.dart';
 import '../providers/selected_driver_provider.dart';
 import '../services/backend/api_client.dart';
+import 'package:uuid/uuid.dart';
+
+const _uuid = Uuid();
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -156,6 +159,9 @@ class RideActionController extends StateNotifier<RideActionState> {
     final destination = _ref.read(destinationProvider);
     final selectedDriver = _ref.read(selectedDriverProvider);
     final idempotencyKey = '${uid}_${DateTime.now().millisecondsSinceEpoch}';
+    final correlationId = _uuid.v4();
+
+    debugPrint('[DIAG][RideAction] Starting bookRide. correlation_id: $correlationId');
 
     state = state.copyWith(
       status: RideActionStatus.loading,
@@ -174,6 +180,7 @@ class RideActionController extends StateNotifier<RideActionState> {
         driverUid: selectedDriver?.driverUid,
         passengerName: _name,
         idempotencyKey: idempotencyKey,
+        correlationId: correlationId,
       );
 
       if (result.isExpired) {
@@ -192,7 +199,7 @@ class RideActionController extends StateNotifier<RideActionState> {
         matchedDriverUid: result.driverUid ?? selectedDriver?.driverUid,
         message: result.message,
       );
-      debugPrint('[RideAction] Ride requested → id=${result.requestId}, driver=${result.driverUid}');
+      debugPrint('[DIAG][RideAction] Ride requested (correlation_id: $correlationId) → ride_id=${result.requestId}, driver=${result.driverUid}');
     } on BackendNetworkException {
       state = state.copyWith(
         status: RideActionStatus.error,

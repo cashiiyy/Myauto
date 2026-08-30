@@ -35,6 +35,7 @@ async def create_ride_request(
     redis: aioredis.Redis,
     request: CreateRideRequest,
     passenger_uid: str,
+    correlation_id: Optional[str] = None,
 ) -> dict:
     """
     Creates a ride request with full idempotency, destination support, atomic driver reservation,
@@ -72,7 +73,7 @@ async def create_ride_request(
     expires_at_iso = expires_at.isoformat()
 
     logger.info(
-        "Passenger %s requested ride from (%.6f, %.6f) to (%s, %s) — ride_id=%s, target_driver=%s",
+        "[DIAG][RideService] Passenger %s requested ride from (%.6f, %.6f) to (%s, %s) — ride_id=%s, target_driver=%s, correlation_id=%s",
         passenger_uid,
         request.pickup_lat,
         request.pickup_lng,
@@ -80,6 +81,7 @@ async def create_ride_request(
         request.destination_lng,
         ride_id,
         request.driver_uid,
+        correlation_id,
     )
 
     # ── 2. Passenger Name Resolution ───────────────────────────────────────────

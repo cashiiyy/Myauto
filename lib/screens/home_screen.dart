@@ -211,6 +211,32 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       }
     });
 
+    // Watch for route bounds updates and adjust camera
+    ref.listen<LatLngBounds?>(mapBoundsProvider, (prev, next) {
+      if (next != null && mounted) {
+        _mapController.fitCamera(
+          CameraFit.bounds(
+            bounds: next,
+            padding: const EdgeInsets.all(50.0),
+          ),
+        );
+      }
+    });
+
+    ref.listen<AsyncValue<RouteResult?>>(routeProvider, (prev, next) {
+      final route = next.value;
+      if (route != null && mounted) {
+        final posAsync = ref.read(currentLocationProvider);
+        final dest = ref.read(destinationProvider);
+        if (posAsync.value != null && dest != null) {
+          final pos = LatLng(posAsync.value!.latitude, posAsync.value!.longitude);
+          final destPos = LatLng(dest.latitude, dest.longitude);
+          final bounds = LatLngBounds.fromPoints([pos, destPos, ...route.polyline]);
+          ref.read(mapBoundsProvider.notifier).state = bounds;
+        }
+      }
+    });
+
     return Scaffold(
       extendBodyBehindAppBar: true,
       body: Stack(
@@ -351,10 +377,43 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             initialZoom: 15.0,
             onTap: (_, __) => setState(() => _selectedAuto = null),
             children: [
-              TileLayer(
-                urlTemplate: AppConfig.tileUrl,
-                userAgentPackageName: 'com.myauto.com',
+              if (AppConfig.cartoBasemapApiKey.isEmpty)
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    color: Colors.black87,
+                    child: const Text(
+                      'CARTO API KEY REQUIRED',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                )
+              else
+                TileLayer(
+                  urlTemplate: AppConfig.tileUrl,
+                  userAgentPackageName: 'com.myauto.com',
+                ),
+
+              // ── Route Polyline (Passenger) ───────────────────────
+              ...ref.watch(routeProvider).when(
+                data: (route) {
+                  if (route == null) return [];
+                  return [
+                    PolylineLayer(
+                      polylines: [
+                        Polyline(
+                          points: route.polyline,
+                          strokeWidth: 4.0,
+                          color: Colors.blue,
+                        ),
+                      ],
+                    )
+                  ];
+                },
+                loading: () => [],
+                error: (_, __) => [],
               ),
+
               MarkerLayer(markers: [
                 // ── Own position marker ──────────────────────────────
                 if (pos != null)
@@ -1099,19 +1158,6 @@ class _InfoRow extends StatelessWidget {
         ),
       ],
     );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Real-Time System Diagnostics Modal Sheet
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _DiagnosticsSheet extends ConsumerStatefulWidget {
-  final String role;
-  final DriverLocationService? driverService;
-
-  const _DiagnosticsSheet({
-    required this.role,
     this.driverService,
   });
 
@@ -1256,6 +1302,8 @@ class _DiagnosticsSheetState extends ConsumerState<_DiagnosticsSheet> {
                     _diagRow('Build Timestamp', AppConfig.buildTimestamp),
                     _diagRow('Git Commit', AppConfig.gitCommit),
                     _diagRow('Realtime Mode', AppConfig.realtimeMode),
+                    _diagRow('CARTO Key', AppConfig.cartoBasemapApiKey.isNotEmpty ? 'Present ✅' : 'Missing ❌', 
+                        color: AppConfig.cartoBasemapApiKey.isNotEmpty ? Colors.green.shade700 : Colors.red),
                   ],
                 ),
                 const SizedBox(height: 12),

@@ -86,9 +86,17 @@ class AppConfig {
 
   /// High-resolution CartoDB Voyager styled map tile template.
   /// Clean, modern, high-contrast city map rendering.
-  static const String tileUrl = String.fromEnvironment(
-    'TILE_URL',
-    defaultValue: 'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+  static String get tileUrl {
+    final baseUrl = 'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png';
+    return cartoBasemapApiKey.isNotEmpty 
+        ? '$baseUrl?api_key=$cartoBasemapApiKey' 
+        : baseUrl;
+  }
+
+  /// The CARTO Location Data Services API key for basemaps.
+  static const String cartoBasemapApiKey = String.fromEnvironment(
+    'CARTO_BASEMAP_API_KEY',
+    defaultValue: '',
   );
 
   // ── Real-time transport mode ──────────────────────────────────────────────

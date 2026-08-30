@@ -67,7 +67,8 @@ async def websocket_endpoint(websocket: WebSocket):
     except Exception as exc:
         logger.warning("WebSocket auth failed: %s", exc)
         try:
-            await websocket.close(code=4001)
+            await websocket.accept()
+            await websocket.close(code=4001, reason="Auth failed")
         except Exception:
             pass
         return

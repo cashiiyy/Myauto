@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/backend_event.dart';
+import '../providers/auth_provider.dart';
+import '../providers/backend_client_provider.dart';
 import '../providers/ride_action_provider.dart';
 import '../providers/ws_provider.dart';
 
@@ -30,14 +32,42 @@ class WsEventRouter extends Notifier<void> {
         next.whenData(_dispatch);
       },
     );
+
+    // Durability: When WS connects, query server for any pending ride assigned to driver
+    ref.listen<AsyncValue<WsConnectionState>>(
+      wsConnectionStateProvider,
+      (prev, next) {
+        if (next.valueOrNull == WsConnectionState.connected) {
+          _checkPendingDriverRide();
+        }
+      },
+    );
+  }
+
+  Future<void> _checkPendingDriverRide() async {
+    final user = ref.read(currentUserProvider).value;
+    if (user != null && user.role.toLowerCase() == 'driver') {
+      try {
+        final api = ref.read(backendApiClientProvider);
+        final pendingEvent = await api.getDriverPendingRide();
+        if (pendingEvent != null) {
+          _log('🔄 [DIAG] Recovered pending ride on reconnect: ${pendingEvent.rideId}');
+          ref.read(incomingRideRequestProvider.notifier).state = pendingEvent;
+        }
+      } catch (e) {
+        _log('[DIAG] Failed to query pending ride for driver: $e');
+      }
+    }
   }
 
   void _dispatch(BackendEvent event) {
+    _log('[DIAG] Routing event: ${event.type.value}, rideId: ${event.rideId}');
     final rideCtrl = ref.read(rideActionControllerProvider.notifier);
 
     switch (event.type) {
       case BackendEventType.rideRequested:
         // Driver receives this — store it for the accept/reject sheet
+        _log('[DIAG] Driver received ride.requested! Updating incomingRideRequestProvider for ride=${event.rideId}');
         ref.read(incomingRideRequestProvider.notifier).state = event;
 
       case BackendEventType.rideMatched:

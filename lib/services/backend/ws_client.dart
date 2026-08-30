@@ -185,6 +185,7 @@ class BackendWebSocketClient extends ChangeNotifier {
       }
 
       if (!_eventController.isClosed) {
+        debugPrint('[DIAG][WsClient] Message received: type=${event.type.value}, rideId=${event.rideId}, eventId=${event.eventId}');
         _eventController.add(event);
       }
     } catch (e) {

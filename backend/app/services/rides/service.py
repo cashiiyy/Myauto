@@ -190,13 +190,11 @@ async def create_ride_request(
             logger.warning("PostgreSQL ride persistence failed (proceeding with Redis session): %s", db_err)
             await db.rollback()
 
-    except Exception:
+    except Exception as match_err:
         from app.redis.locks import release_driver_lock
         await release_driver_lock(redis, driver_uid, passenger_uid)
+        logger.error("Ride matching state/persistence failed for driver %s: %s", driver_uid, match_err)
         raise
-    finally:
-        from app.redis.locks import release_driver_lock
-        await release_driver_lock(redis, driver_uid, passenger_uid)
 
     # ── 7. Dispatch WebSocket Events ──────────────────────────────────────────
 
@@ -221,6 +219,12 @@ async def create_ride_request(
         ride_id=ride_id,
         payload=driver_payload,
     )
+    logger.info(
+        "[DIAG][RideService] Dispatching ride.requested to driver=%s (ride_id=%s, expires_at=%s)",
+        driver_uid,
+        ride_id,
+        expires_at_iso,
+    )
     await manager.send_personal_message(driver_event, driver_uid)
 
     # Notify PASSENGER
@@ -232,6 +236,12 @@ async def create_ride_request(
             "match_id": ride_id,
             "message": "Driver found. Waiting for driver confirmation.",
         },
+    )
+    logger.info(
+        "[DIAG][RideService] Dispatching ride.matched to passenger=%s (driver=%s, ride_id=%s)",
+        passenger_uid,
+        driver_uid,
+        ride_id,
     )
     await manager.send_personal_message(passenger_event, passenger_uid)
 

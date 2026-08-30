@@ -41,6 +41,73 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/rides", tags=["Rides"])
 
 
+@router.get("/driver/pending")
+async def get_driver_pending_ride(
+    user: VerifiedToken = Depends(get_current_user),
+    redis: aioredis.Redis = Depends(get_redis),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Driver polls or reconnects to retrieve any active pending ride request.
+    Ensures durability across WebSocket network drops or transient disconnects.
+    """
+    logger.info("[DIAG][RidesAPI] Checking pending ride for driver UID: %s", user.uid)
+    pending_ride = None
+    try:
+        ride_repo = RideRepository(db)
+        pending_ride = await ride_repo.get_pending_for_driver(user.uid)
+    except Exception as db_err:
+        logger.debug("[DIAG][RidesAPI] DB query failed in get_driver_pending_ride (fallback active): %s", db_err)
+
+    if not pending_ride:
+        return {"has_pending": False, "ride": None}
+
+    ride_id_str = str(pending_ride.id)
+    session_key = RedisKeys.ride_session(ride_id_str)
+    session = await redis.hgetall(session_key)
+
+    expires_at_iso = (
+        pending_ride.request_expires_at.isoformat()
+        if pending_ride.request_expires_at
+        else (session.get("expires_at") if session else None)
+    )
+
+    if expires_at_iso:
+        try:
+            if datetime.now(timezone.utc) > datetime.fromisoformat(expires_at_iso):
+                logger.info("[DIAG][RidesAPI] Pending ride %s for driver %s has expired", ride_id_str, user.uid)
+                return {"has_pending": False, "ride": None}
+        except Exception:
+            pass
+
+    pickup_lat = float(session["pickup_lat"]) if (session and "pickup_lat" in session) else None
+    pickup_lng = float(session["pickup_lng"]) if (session and "pickup_lng" in session) else None
+    destination_lat = pending_ride.dropoff_lat or (float(session["destination_lat"]) if (session and "destination_lat" in session) else None)
+    destination_lng = pending_ride.dropoff_lng or (float(session["destination_lng"]) if (session and "destination_lng" in session) else None)
+    destination_label = pending_ride.destination_label or (session.get("destination_label") if session else pending_ride.destination_label)
+    passenger_name = pending_ride.passenger_name or (session.get("passenger_name", "Passenger") if session else pending_ride.passenger_name or "Passenger")
+
+    payload = {
+        "passenger_uid": pending_ride.passenger_uid,
+        "passenger_name": passenger_name,
+        "pickup_lat": pickup_lat,
+        "pickup_lng": pickup_lng,
+        "destination_lat": destination_lat,
+        "destination_lng": destination_lng,
+        "destination_label": destination_label or "Selected Destination",
+        "notes": pending_ride.notes,
+        "match_id": ride_id_str,
+        "expires_at": expires_at_iso,
+    }
+
+    logger.info("[DIAG][RidesAPI] Found active pending ride %s for driver %s", ride_id_str, user.uid)
+    return {
+        "has_pending": True,
+        "ride_id": ride_id_str,
+        "payload": payload,
+    }
+
+
 @router.post("/requests", response_model=RideRequestResponse)
 async def request_ride(
     request: CreateRideRequest,

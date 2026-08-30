@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import '../../config/app_config.dart';
+import '../../models/backend_event.dart';
 import '../../models/nearby_driver_model.dart';
 import '../../models/ride_result_model.dart';
 
@@ -239,6 +240,28 @@ class BackendApiClient {
       return MatchActionResult.fromJson(resp.data as Map<String, dynamic>);
     } on DioException catch (e) {
       _handleDioException(e);
+    }
+  }
+
+  Future<BackendEvent?> getDriverPendingRide() async {
+    if (AppConfig.mockMode) return null;
+    try {
+      final resp = await _dio.get('/api/rides/driver/pending');
+      final data = resp.data as Map<String, dynamic>;
+      if (data['has_pending'] == true && data['payload'] != null) {
+        debugPrint('[DIAG][ApiClient] Recovered pending ride request from server: ${data['ride_id']}');
+        return BackendEvent(
+          eventId: 'pending-${data['ride_id']}',
+          type: BackendEventType.rideRequested,
+          serverTimestamp: DateTime.now().toUtc().toIso8601String(),
+          rideId: data['ride_id'] as String?,
+          payload: data['payload'] as Map<String, dynamic>,
+        );
+      }
+      return null;
+    } on DioException catch (e) {
+      debugPrint('[ApiClient] getDriverPendingRide error: $e');
+      return null;
     }
   }
 

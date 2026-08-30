@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from geoalchemy2.functions import ST_MakePoint, ST_SetSRID
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Ride
@@ -103,3 +103,22 @@ class RideRepository:
             ride.updated_at = datetime.now(timezone.utc)
             await self.session.flush()
         return ride
+
+    async def get_pending_for_driver(self, driver_uid: str) -> Optional[Ride]:
+        """Fetch the most recent non-expired pending ride request assigned to this driver."""
+        if not self.session or not driver_uid:
+            return None
+        now = datetime.now(timezone.utc)
+        stmt = (
+            select(Ride)
+            .where(
+                or_(Ride.selected_driver_uid == driver_uid, Ride.driver_uid == driver_uid),
+                Ride.status == "requested",
+                or_(Ride.request_expires_at.is_(None), Ride.request_expires_at > now),
+            )
+            .order_by(Ride.created_at.desc())
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+

@@ -62,6 +62,7 @@ class ConnectionManager:
                     await self._send_local_broadcast(payload)
                 elif channel.startswith("ws:channel:"):
                     target_uid = channel[len("ws:channel:"):]
+                    logger.info("[DIAG][Manager] Pub/Sub received message for target_uid=%s (type=%s)", target_uid, payload.get("type"))
                     await self._send_local(target_uid, payload)
         except asyncio.CancelledError:
             pass
@@ -89,19 +90,27 @@ class ConnectionManager:
     async def connect(self, websocket: WebSocket, uid: str):
         await websocket.accept()
         self.active_connections[uid] = websocket
-        logger.info("WebSocket connected locally for UID: %s (total local: %d)", uid, len(self.active_connections))
+        logger.info("[DIAG][Manager] WebSocket connected locally for UID: %s (total local: %d)", uid, len(self.active_connections))
 
     def disconnect(self, uid: str):
         if uid in self.active_connections:
             del self.active_connections[uid]
-            logger.info("WebSocket disconnected locally for UID: %s (total local: %d)", uid, len(self.active_connections))
+            logger.info("[DIAG][Manager] WebSocket disconnected locally for UID: %s (total local: %d)", uid, len(self.active_connections))
 
     async def _send_local(self, uid: str, payload: dict):
         """Send message directly to a locally connected client."""
         ws = self.active_connections.get(uid)
+        logger.info(
+            "[DIAG][Manager] _send_local uid=%s, found_local=%s, event_type=%s, ride_id=%s",
+            uid,
+            bool(ws),
+            payload.get("type"),
+            payload.get("ride_id"),
+        )
         if ws:
             try:
                 await ws.send_json(payload)
+                logger.info("[DIAG][Manager] _send_local SUCCESS to uid=%s", uid)
             except Exception as e:
                 logger.error("Failed to send local WebSocket message to %s: %s", uid, e)
                 self.disconnect(uid)
@@ -124,19 +133,35 @@ class ConnectionManager:
         Publishes to Redis Pub/Sub for multi-worker delivery, with local fallback.
         """
         payload = event.to_json()
+        channel = RedisKeys.ws_user_channel(uid)
+        is_local = uid in self.active_connections
+        logger.info(
+            "[DIAG][Manager] send_personal_message targeting uid=%s (type=%s, ride_id=%s, channel=%s, is_local=%s)",
+            uid,
+            event.type,
+            event.ride_id,
+            channel,
+            is_local,
+        )
         published = False
 
         try:
             from app.redis.client import get_redis
             redis_client = await get_redis()
-            channel = RedisKeys.ws_user_channel(uid)
-            await redis_client.publish(channel, json.dumps(payload))
+            subscribers = await redis_client.publish(channel, json.dumps(payload))
             published = True
-        except Exception:
+            logger.info(
+                "[DIAG][Manager] Published to Redis channel=%s (subscribers_reached=%s)",
+                channel,
+                subscribers,
+            )
+        except Exception as e:
+            logger.warning("[DIAG][Manager] Redis publish failed for channel %s: %s", channel, e)
             published = False
 
         # If Redis publishing is unavailable or not running, deliver locally
         if not published:
+            logger.info("[DIAG][Manager] Falling back to direct local send for uid=%s", uid)
             await self._send_local(uid, payload)
 
     async def broadcast(self, event: WebSocketEvent):

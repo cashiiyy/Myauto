@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../../models/backend_event.dart';
-import '../../config/app_config.dart';
-import '../backend/ws_client.dart';
 
 // ── Abstract interface ────────────────────────────────────────────────────────
 
@@ -23,34 +21,6 @@ abstract class RealtimeAdapter {
 
   /// Dispose all resources.
   void dispose();
-}
-
-// ── FastAPI WebSocket Adapter ────────────────────────────────────────────────
-
-/// Production real-time transport adapter wrapping [BackendWebSocketClient].
-class WebSocketRealtimeAdapter implements RealtimeAdapter {
-  final BackendWebSocketClient _client;
-
-  WebSocketRealtimeAdapter([BackendWebSocketClient? client])
-      : _client = client ?? BackendWebSocketClient();
-
-  @override
-  Stream<BackendEvent> get events => _client.events;
-
-  @override
-  Future<void> connect() async {
-    await _client.connect();
-  }
-
-  @override
-  Future<void> disconnect() async {
-    await _client.disconnect();
-  }
-
-  @override
-  void dispose() {
-    _client.dispose();
-  }
 }
 
 // ── Mock adapter ──────────────────────────────────────────────────────────────
@@ -74,12 +44,3 @@ class MockRealtimeAdapter implements RealtimeAdapter {
   void dispose() => _controller.close();
 }
 
-// ── Factory ───────────────────────────────────────────────────────────────────
-
-/// Create the appropriate [RealtimeAdapter] based on [AppConfig.realtimeMode].
-RealtimeAdapter createRealtimeAdapter() {
-  if (AppConfig.mockMode || AppConfig.realtimeMode == 'mock') {
-    return MockRealtimeAdapter();
-  }
-  return WebSocketRealtimeAdapter();
-}

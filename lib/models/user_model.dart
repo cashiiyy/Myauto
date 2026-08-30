@@ -61,7 +61,7 @@ class UserModel {
     return UserModel(
       uid: documentId,
       email: map['email'] ?? '',
-      role: map['role'] ?? 'passenger',
+      role: ((map['role'] as String?) ?? 'passenger').toLowerCase(),
       name: map['name'] ?? '',
       phone: map['phone'] ?? '',
       createdAt: map['createdAt'] != null ? DateTime.parse(map['createdAt']) : DateTime.now(),

@@ -458,3 +458,18 @@ async def test_sos_returns_acknowledged(client):
     body = resp.json()
     assert body["acknowledged"] is True
     assert "sos_event_id" in body
+
+
+# ---------------------------------------------------------------------------
+# Driver Pending Ride Recovery
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(not HAS_HTTPX, reason="httpx not installed")
+async def test_driver_pending_ride_returns_none_when_empty(client):
+    """Driver checking for pending rides when none exist returns has_pending=False."""
+    resp = await client.get("/api/rides/driver/pending")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["has_pending"] is False
+    assert body["ride"] is None
+

@@ -124,18 +124,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   void _toggleRole(UserModel? user) async {
-    final currentRole = user?.role ?? 
-        (ref.read(userProfileProvider).profileMode.toLowerCase().contains('driver') ? 'driver' : 'passenger');
-    final newRole = currentRole == 'driver' ? 'passenger' : 'driver';
+    // Guard: profile must be loaded before a role toggle is meaningful.
+    if (user == null) return;
 
-    if (user != null) {
-      final updatedUser = user.copyWith(role: newRole);
-      await ref.read(authControllerProvider.notifier).createUserDocument(updatedUser);
-      ref.read(localSessionProvider.notifier).state = updatedUser;
-    }
-    ref.read(userProfileProvider.notifier).updateProfileMode(
-      newRole == 'driver' ? 'Driver mode' : 'Passenger mode',
-    );
+    final newRole = user.role.toLowerCase() == 'driver' ? 'passenger' : 'driver';
+
+    final updatedUser = user.copyWith(role: newRole);
+    await ref.read(authControllerProvider.notifier).createUserDocument(updatedUser);
+    ref.read(localSessionProvider.notifier).state = updatedUser;
     ref.invalidate(currentUserProvider);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -295,10 +291,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Widget _buildMapTab() {
     final locationAsync = ref.watch(currentLocationProvider);
-    final currentUser = ref.watch(currentUserProvider).value;
-    final profileMode = ref.watch(userProfileProvider).profileMode;
-    final role = currentUser?.role ?? 
-        (profileMode.toLowerCase().contains('driver') ? 'driver' : 'passenger');
+    final currentUserAsync = ref.watch(currentUserProvider);
+    final currentUser = currentUserAsync.value;
+
+    // While the authenticated profile has not yet arrived from Firestore,
+    // show a neutral loading state. This prevents stale in-memory state
+    // (e.g. a previous driver session) from incorrectly gating passenger UI.
+    if (currentUserAsync.isLoading && currentUser == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    // Single authoritative role source: authenticated Firestore UserModel.
+    // Falls back to 'passenger' only when Firestore confirms no document
+    // exists — auth_provider.dart already creates a fallback doc with role='passenger'.
+    final role = (currentUser?.role ?? 'passenger').toLowerCase();
 
     // ── Backend driver state (primary) ─────────────────────────────────────
     final backendDriversState = ref.watch(backendDriversProvider);
@@ -544,7 +550,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
 
           // ── Book Ride + Share Ride (passengers) ───────────────────────
-          if ((ref.watch(currentUserProvider).value?.role ?? 'passenger') == 'passenger')
+          if (role == 'passenger')
             Positioned(
               bottom: _selectedAuto == null ? 120 : 360, right: 20,
               child: _buildPassengerActionBar(ref.watch(rideActionControllerProvider)),

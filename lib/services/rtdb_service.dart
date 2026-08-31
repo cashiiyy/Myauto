@@ -92,7 +92,7 @@ class RtdbService {
         return <DriverLocationModel>[];
       }
 
-      final rawMap = data as Map<dynamic, dynamic>;
+      final rawMap = data;
       final List<DriverLocationModel> result = [];
 
       for (final entry in rawMap.entries) {
@@ -135,7 +135,7 @@ class RtdbService {
         return <RideRequestModel>[];
       }
 
-      final rawMap = data as Map<dynamic, dynamic>;
+      final rawMap = data;
       final List<RideRequestModel> result = [];
 
       for (final entry in rawMap.entries) {
@@ -180,7 +180,7 @@ class RtdbService {
         return <RideShareModel>[];
       }
 
-      final rawMap = data as Map<dynamic, dynamic>;
+      final rawMap = data;
       final List<RideShareModel> result = [];
 
       for (final entry in rawMap.entries) {

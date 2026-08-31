@@ -160,8 +160,8 @@ class AuthController extends StateNotifier<AsyncValue<void>> {
     }
     try {
       final googleUser = await GoogleSignIn(
-        clientId: kIsWeb ? '252031920183-qb88a1c6sagbrhtij9scukijh6nqre6j.apps.googleusercontent.com' : null,
-        serverClientId: '252031920183-qb88a1c6sagbrhtij9scukijh6nqre6j.apps.googleusercontent.com',
+        clientId: kIsWeb ? '422292813866-seft9t2nlsfm5hms14kl91ep5gj6oge8.apps.googleusercontent.com' : null,
+        serverClientId: '422292813866-seft9t2nlsfm5hms14kl91ep5gj6oge8.apps.googleusercontent.com',
       ).signIn();
       if (googleUser == null) {
         state = const AsyncValue.data(null);
@@ -192,7 +192,7 @@ class AuthController extends StateNotifier<AsyncValue<void>> {
   Future<void> signOut() async {
     if (_auth != null) {
       await GoogleSignIn(
-        clientId: '252031920183-qb88a1c6sagbrhtij9scukijh6nqre6j.apps.googleusercontent.com',
+        clientId: '422292813866-seft9t2nlsfm5hms14kl91ep5gj6oge8.apps.googleusercontent.com',
       ).signOut();
       await _auth.signOut();
     }

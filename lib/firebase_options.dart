@@ -23,22 +23,22 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyByT0Lo7tgsNnoPoEhzjG4e0xeKMIO8e5s',
-    appId: '1:252031920183:android:5409accead9fa6a742b7b2',
-    messagingSenderId: '252031920183',
-    projectId: 'myauto-493fc',
-    storageBucket: 'myauto-493fc.firebasestorage.app',
-    databaseURL: 'https://myauto-493fc-default-rtdb.firebaseio.com',
+    apiKey: 'AIzaSyA9T_5yIYmP2-6RL-G3ybqKv7lBLkXzKm0',
+    appId: '1:422292813866:android:9c117b1becb53352aceb53',
+    messagingSenderId: '422292813866',
+    projectId: 'myauto-dd21e',
+    storageBucket: 'myauto-dd21e.firebasestorage.app',
+    databaseURL: 'https://myauto-dd21e-default-rtdb.asia-southeast1.firebasedatabase.app',
   );
 
   // Web config — Firebase Console > Project Settings > Web Apps
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyByT0Lo7tgsNnoPoEhzjG4e0xeKMIO8e5s',
-    appId: '1:252031920183:web:ee90dd6579d65a6d42b7b2',
-    messagingSenderId: '252031920183',
-    projectId: 'myauto-493fc',
-    storageBucket: 'myauto-493fc.firebasestorage.app',
-    authDomain: 'myauto-493fc.firebaseapp.com',
-    databaseURL: 'https://myauto-493fc-default-rtdb.firebaseio.com',
+    apiKey: 'AIzaSyA9T_5yIYmP2-6RL-G3ybqKv7lBLkXzKm0',
+    appId: '1:422292813866:web:ee90dd6579d65a6d42b7b2',
+    messagingSenderId: '422292813866',
+    projectId: 'myauto-dd21e',
+    storageBucket: 'myauto-dd21e.firebasestorage.app',
+    authDomain: 'myauto-dd21e.firebaseapp.com',
+    databaseURL: 'https://myauto-dd21e-default-rtdb.asia-southeast1.firebasedatabase.app',
   );
 }

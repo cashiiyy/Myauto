@@ -38,7 +38,7 @@ final firebaseDatabaseProvider = Provider<FirebaseDatabase?>((ref) {
   if (Firebase.apps.isEmpty) return null;
   return FirebaseDatabase.instanceFor(
     app: Firebase.app(),
-    databaseURL: 'https://myauto-493fc-default-rtdb.asia-southeast1.firebasedatabase.app',
+    databaseURL: 'https://myauto-dd21e-default-rtdb.asia-southeast1.firebasedatabase.app',
   );
 });
 

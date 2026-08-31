@@ -66,6 +66,8 @@ backend/.env
 backend/secrets/
 **/secrets/*
 *serviceAccountKey*.json
+android/local.properties
+**/local.properties
 
 *pdf
 

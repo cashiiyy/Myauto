@@ -12,8 +12,7 @@ dependencies:
     sdk: flutter
   flutter_riverpod: ^2.4.9
   riverpod_annotation: ^2.3.3
-  flutter_map: ^6.1.0
-  latlong2: ^0.9.0
+  google_maps_flutter: ^2.18.0
   geolocator: ^11.0.0
   permission_handler: ^11.2.0
   url_launcher: ^6.2.3
@@ -30,26 +29,11 @@ dependencies:
   web_socket_channel: ^2.4.0
   dio: ^5.4.3
   uuid: ^4.6.0
-  # ── New technology stack adapters ─────────────────────────────────────────
-  # maplibre_gl: ^0.27.0  (verified latest on pub.dev, Aug 2026)
-  #   Supports: Android ✅  iOS ✅  Web ✅
-  #   Published by: maplibre.org (verified publisher)
-  #   Feature-flag: MAP_MODE=maplibre dart-define (default: flutter_map — no change)
-  #   To enable: uncomment the line below, then run `flutter pub get`
-  # maplibre_gl: ^0.27.0
-  #
-  # socket_io_client: ^3.1.6  (verified latest on pub.dev, Jun 2026)
-  #   Supports: Android ✅  iOS ✅  Web ✅  Windows ✅  macOS ✅  Linux ✅
-  #   Compatible with: Socket.IO server v4.7.* (our nodejs uses socket.io ^4.7.4)
-  #   Version table: dart client v3.* ↔ Socket.IO server v4.7.*~v4.*
-  #   Feature-flag: REALTIME_MODE=socketio dart-define (default: websocket — no change)
-  #   To enable: uncomment the line below, then run `flutter pub get`
-  # socket_io_client: ^3.1.6
-
-
 
 dev_dependencies:
   flutter_test:
+    sdk: flutter
+  integration_test:
     sdk: flutter
   flutter_lints: ^3.0.0
   custom_lint: ^0.6.2
@@ -60,3 +44,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/images/
+    - assets/map/

@@ -1,17 +1,17 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:geolocator/geolocator.dart';
+import 'package:my_auto/features/map/services/marker_service.dart';
 import 'package:my_auto/models/user_model.dart';
 import 'package:my_auto/providers/auth_provider.dart';
+import 'package:my_auto/providers/backend_drivers_provider.dart';
 import 'package:my_auto/providers/location_provider.dart';
 import 'package:my_auto/providers/backend_client_provider.dart';
 import 'package:my_auto/providers/ws_provider.dart';
 import 'package:my_auto/services/backend/api_client.dart';
-import 'package:my_auto/services/backend/ws_client.dart';
 import 'package:my_auto/screens/home_screen.dart';
 import 'package:my_auto/widgets/destination_search_bar.dart';
-import 'dart:async';
 
 class MockBackendApiClient extends BackendApiClient {
   MockBackendApiClient() : super(auth: null);
@@ -23,14 +23,18 @@ class MockBackendWebSocketClient extends BackendWebSocketClient {
   Future<void> connect() async {}
   @override
   Future<void> disconnect() async {}
+}
+
+class FakeBackendDriversNotifier extends StateNotifier<BackendDriversState> implements BackendDriversNotifier {
+  FakeBackendDriversNotifier() : super(const BackendDriversState());
+
   @override
-  void dispose() { super.dispose(); }
+  Future<void> refresh() async {}
 }
 
 void main() {
   group('HomeScreen Widget Tests', () {
     testWidgets('Passenger role shows DestinationSearchBar', (WidgetTester tester) async {
-      // Create a mock user model with passenger role
       final mockPassenger = UserModel(
         uid: 'pass_123',
         email: 'pass@test.com',
@@ -47,6 +51,9 @@ void main() {
             currentLocationProvider.overrideWith((ref) => const Stream.empty()),
             backendApiClientProvider.overrideWithValue(MockBackendApiClient()),
             wsClientProvider.overrideWithValue(MockBackendWebSocketClient()),
+            wsConnectionStateProvider.overrideWith((ref) => Stream.value(WsConnectionState.connected)),
+            backendDriversProvider.overrideWith((ref) => FakeBackendDriversNotifier()),
+            markerServiceProvider.overrideWith((ref) => Future.value(MarkerService())),
           ],
           child: const MaterialApp(
             home: HomeScreen(),
@@ -54,18 +61,16 @@ void main() {
         ),
       );
 
-      // We need to wait for the location async to settle or we can just assert it renders the loading overlay
       await tester.pump();
 
-      // Because the location is loading, we should see the "Acquiring GPS location..." banner
+      // Location loading overlay assertion
       expect(find.text('Acquiring GPS location...'), findsOneWidget);
 
-      // And we should also see the DestinationSearchBar because the map loading is now decoupled
+      // DestinationSearchBar visible for passenger
       expect(find.byType(DestinationSearchBar), findsOneWidget);
     });
 
     testWidgets('Driver role hides DestinationSearchBar', (WidgetTester tester) async {
-      // Create a mock user model with driver role
       final mockDriver = UserModel(
         uid: 'drv_123',
         email: 'drv@test.com',
@@ -82,6 +87,9 @@ void main() {
             currentLocationProvider.overrideWith((ref) => const Stream.empty()),
             backendApiClientProvider.overrideWithValue(MockBackendApiClient()),
             wsClientProvider.overrideWithValue(MockBackendWebSocketClient()),
+            wsConnectionStateProvider.overrideWith((ref) => Stream.value(WsConnectionState.connected)),
+            backendDriversProvider.overrideWith((ref) => FakeBackendDriversNotifier()),
+            markerServiceProvider.overrideWith((ref) => Future.value(MarkerService())),
           ],
           child: const MaterialApp(
             home: HomeScreen(),

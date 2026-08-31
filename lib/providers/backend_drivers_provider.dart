@@ -120,7 +120,7 @@ class BackendDriversNotifier extends StateNotifier<BackendDriversState> {
   void _startPolling() {
     _poll(); // Immediate first fetch
     _pollTimer = Timer.periodic(
-      Duration(seconds: AppConfig.nearbyDriverPollIntervalSeconds),
+      const Duration(seconds: AppConfig.nearbyDriverPollIntervalSeconds),
       (_) => _poll(),
     );
   }

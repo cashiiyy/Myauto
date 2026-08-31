@@ -3,56 +3,32 @@ import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../config/app_config.dart';
+import '../features/map/presentation/myauto_google_map.dart';
+import '../features/map/providers/map_controller_provider.dart';
+import '../features/map/providers/map_provider.dart';
 import '../models/backend_event.dart';
 import '../models/auto_model.dart';
-import '../models/nearby_driver_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/backend_client_provider.dart';
 import '../providers/backend_drivers_provider.dart';
-import '../providers/destination_provider.dart';
 import '../providers/location_provider.dart';
 import '../providers/ride_action_provider.dart';
-import '../providers/rtdb_provider.dart';
-import '../providers/selected_driver_provider.dart';
 import '../providers/user_provider.dart';
 import '../providers/ws_event_router.dart';
 import '../providers/ws_provider.dart';
 import '../services/driver_location_service.dart';
-import '../services/map/map_abstraction.dart';
 import '../widgets/auto_details_sheet.dart';
 import '../widgets/destination_search_bar.dart';
 import 'activity_screen.dart';
 import 'profile_screen.dart';
-import 'profile_screen.dart';
 import '../models/user_model.dart';
-import '../services/routing/routing_service.dart';
-
-// ── Map State ────────────────────────────────────────────────────────────────
-final mapBoundsProvider = StateProvider<LatLngBounds?>((ref) => null);
-
-final routeProvider = FutureProvider<RouteResult?>((ref) async {
-  final user = ref.watch(currentUserProvider).value;
-  if (user?.role != 'passenger') return null;
-
-  final posAsync = ref.watch(currentLocationProvider);
-  final dest = ref.watch(destinationProvider);
-
-  if (posAsync.value == null || dest == null) return null;
-
-  final pos = LatLng(posAsync.value!.latitude, posAsync.value!.longitude);
-  final destPos = LatLng(dest.latitude, dest.longitude);
-
-  final routing = createRoutingService();
-  return routing.getRoute(pos, destPos);
-});
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -62,7 +38,6 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-  final MapController _mapController = MapController();
   int _currentIndex = 0;
   AutoModel? _selectedAuto;
   double _distanceToAuto = 0.0;
@@ -103,22 +78,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
-  /// Select a backend-sourced NearbyDriverModel
-  void _selectFromNearbyDriver(NearbyDriverModel d, dynamic position) {
-    ref.read(selectedDriverProvider.notifier).state = d;
-    final auto = AutoModel(
-      id: d.driverUid,
-      latitude: d.latitude,
-      longitude: d.longitude,
-      isAvailable: d.isAvailable,
-      driverName: 'Auto Driver',    // Backend does not return name at discovery (privacy)
-      phoneNumber: '',         // Phone number NEVER returned by nearby endpoint
-      vehicleNumber: 'KL Auto',
-      rating: d.rating ?? 5.0,
-    );
-    _selectAuto(auto, position);
-  }
-
   void _selectAuto(AutoModel auto, dynamic currentPos) {
     if (currentPos != null) {
       _distanceToAuto = Geolocator.distanceBetween(
@@ -133,7 +92,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     ref.read(backendDriversProvider.notifier).refresh();
     final pos = ref.read(currentLocationProvider).value;
     if (pos != null) {
-      _mapController.move(LatLng(pos.latitude, pos.longitude), _mapController.camera.zoom);
+      ref.read(cameraIntentProvider.notifier).state = CameraRequest.animateTo(
+        LatLng(pos.latitude, pos.longitude),
+        zoom: 15.0,
+      );
     }
   }
 
@@ -232,29 +194,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       }
     });
 
-    // Watch for route bounds updates and adjust camera
-    ref.listen<LatLngBounds?>(mapBoundsProvider, (prev, next) {
-      if (next != null && mounted) {
-        _mapController.fitCamera(
-          CameraFit.bounds(
-            bounds: next,
-            padding: const EdgeInsets.all(50.0),
-          ),
-        );
-      }
-    });
-
-    ref.listen<AsyncValue<RouteResult?>>(routeProvider, (prev, next) {
-      final route = next.value;
-      if (route != null && mounted) {
-        final posAsync = ref.read(currentLocationProvider);
-        final dest = ref.read(destinationProvider);
-        if (posAsync.value != null && dest != null) {
-          final pos = LatLng(posAsync.value!.latitude, posAsync.value!.longitude);
-          final destPos = LatLng(dest.latitude, dest.longitude);
-          final bounds = LatLngBounds.fromPoints([pos, destPos, ...route.polyline]);
-          ref.read(mapBoundsProvider.notifier).state = bounds;
-        }
+    // Sync selected auto from map tap with details sheet
+    ref.listen<AutoModel?>(selectedAutoProvider, (prev, next) {
+      if (next != null) {
+        final pos = ref.read(currentLocationProvider).value;
+        _selectAuto(next, pos);
+      } else {
+        setState(() => _selectedAuto = null);
       }
     });
 
@@ -374,201 +320,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // exists — auth_provider.dart already creates a fallback doc with role='passenger'.
     final role = (currentUser?.role ?? 'passenger').toLowerCase();
 
-    // ── Backend driver state (primary) ─────────────────────────────────────
-    final backendDriversState = ref.watch(backendDriversProvider);
-
-    // ── RTDB ride shares (still active for co-passenger feature) ───────────
-    final sharesAsync = ref.watch(nearbyRideSharesStreamProvider);
-
     final pos = locationAsync.value;
     // Default to a fallback location if GPS is not yet available, so map renders.
     final userLoc = pos != null ? LatLng(pos.latitude, pos.longitude) : const LatLng(8.5241, 76.9366); 
-
-    // Read destination for the pin marker (passenger-only, additive)
-    final destination = ref.watch(destinationProvider);
 
     return Stack(
       children: [
         // ── Map always renders ──────────────────────────────────────────
         GestureDetector(
-          onTap: () { if (_selectedAuto != null) setState(() => _selectedAuto = null); },
-          child: MapAbstraction(
-            mapController: _mapController,
+          onTap: () {
+            if (_selectedAuto != null) {
+              setState(() => _selectedAuto = null);
+              ref.read(selectedAutoProvider.notifier).state = null;
+            }
+          },
+          child: MyAutoGoogleMap(
             initialCenter: userLoc,
             initialZoom: 15.0,
-            onTap: (_, __) => setState(() => _selectedAuto = null),
-            children: [
-              TileLayer(
-                urlTemplate: AppConfig.tileUrl,
-                userAgentPackageName: 'com.myauto.com',
-                maxZoom: 20,
-                maxNativeZoom: 19,
-                retinaMode: RetinaMode.isHighDensity(context),
-              ),
-
-              // ── Route Polyline (Passenger) ───────────────────────
-              ...ref.watch(routeProvider).when(
-                data: (route) {
-                  if (route == null) return [];
-                  return [
-                    PolylineLayer(
-                      polylines: [
-                        Polyline(
-                          points: route.polyline,
-                          strokeWidth: 4.5,
-                          color: const Color(0xFF2563EB),
-                        ),
-                      ],
-                    )
-                  ];
-                },
-                loading: () => [],
-                error: (_, __) => [],
-              ),
-
-              MarkerLayer(markers: [
-                // ── Own position marker ──────────────────────────────
-                if (pos != null)
-                  Marker(
-                    point: userLoc,
-                    width: 44,
-                    height: 44,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.blue.withValues(alpha: 0.2),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Center(
-                        child: Icon(Icons.my_location, color: Color(0xFF1D4ED8), size: 28),
-                      ),
-                    ),
-                  ),
-
-                // ── Passenger sees nearby DRIVERS from backend (🛺) ──
-                if (role == 'passenger')
-                  ...backendDriversState.drivers.map((d) {
-                    if (d.isStale) return null; // filter stale
-                    final isSelected = _selectedAuto?.id == d.driverUid;
-                    return Marker(
-                      point: LatLng(d.latitude, d.longitude),
-                      width: isSelected ? 64 : 52,
-                      height: isSelected ? 64 : 52,
-                      child: GestureDetector(
-                        onTap: () => _selectFromNearbyDriver(d, pos),
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            Container(
-                              width: isSelected ? 56 : 46,
-                              height: isSelected ? 56 : 46,
-                              decoration: BoxDecoration(
-                                color: d.isAvailable
-                                    ? const Color(0xFF10B981).withValues(alpha: 0.25)
-                                    : const Color(0xFFEF4444).withValues(alpha: 0.25),
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: isSelected
-                                      ? Colors.black87
-                                      : (d.isAvailable ? const Color(0xFF059669) : const Color(0xFFDC2626)),
-                                  width: isSelected ? 2.5 : 1.5,
-                                ),
-                                boxShadow: const [
-                                  BoxShadow(
-                                    color: Colors.black26,
-                                    blurRadius: 4,
-                                    offset: Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Text(
-                              '🛺',
-                              style: TextStyle(fontSize: isSelected ? 28 : 22),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }).whereType<Marker>().toList(),
-
-                // ── Destination marker pin ───────────────────────────
-                if (destination != null)
-                  Marker(
-                    point: LatLng(destination.latitude, destination.longitude),
-                    width: 50,
-                    height: 50,
-                    alignment: Alignment.topCenter,
-                    child: const Icon(
-                      Icons.location_on,
-                      color: Colors.redAccent,
-                      size: 44,
-                    ),
-                  ),
-
-                    // ── Driver sees a pulse marker when a ride.requested event arrives
-                    // (the accept/reject sheet handles the actual interaction)
-                    if (role == 'driver') ..._buildIncomingRequestPulse(),
-
-                    // ── Co-passengers sharing ride (🤝) — RTDB source ────
-                    ...sharesAsync.when(
-                      loading: () => <Marker>[],
-                      error: (e, _) {
-                        debugPrint('🔴 [Shares] $e');
-                        return <Marker>[];
-                      },
-                      data: (shares) => shares.map((s) => Marker(
-                        point: LatLng(s.latitude, s.longitude),
-                        width: 48, height: 48,
-                        child: Tooltip(
-                          message: '${s.name} — share ride',
-                          child: Stack(alignment: Alignment.center, children: [
-                            Container(
-                              decoration: BoxDecoration(
-                                color: Colors.teal.withValues(alpha: 0.5),
-                                shape: BoxShape.circle,
-                              ),
-                              width: 40, height: 40,
-                            ),
-                            const Text('🤝', style: TextStyle(fontSize: 22)),
-                          ]),
-                        ),
-                      )).toList(),
-                    ),
-
-                    // ── Destination pin marker (passenger-only, additive) ──
-                    // Appears when passenger selects a destination from search.
-                    // Does NOT trigger any booking or matching logic.
-                    if (role == 'passenger' && destination != null)
-                      Marker(
-                        point: LatLng(destination.latitude, destination.longitude),
-                        width: 48,
-                        height: 48,
-                        child: Tooltip(
-                          message: destination.displayLabel,
-                          child: Stack(alignment: Alignment.topCenter, children: [
-                            Container(
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF007AFF).withValues(alpha: 0.15),
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: const Color(0xFF007AFF),
-                                  width: 2,
-                                ),
-                              ),
-                              width: 38,
-                              height: 38,
-                            ),
-                            const Positioned(
-                              top: 4,
-                              child: Text('📍', style: TextStyle(fontSize: 22)),
-                            ),
-                          ]),
-                        ),
-                      ),
-                  ]),
-                ],
-              ),
-            ),
+            onTap: () {
+              if (_selectedAuto != null) {
+                setState(() => _selectedAuto = null);
+                ref.read(selectedAutoProvider.notifier).state = null;
+              }
+            },
+          ),
+        ),
 
         // ── Location loading overlay ──────────────────────────────────────
         if (locationAsync.isLoading && pos == null)
@@ -690,7 +466,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               onPressed: () {
                 final pos = ref.read(currentLocationProvider).value;
                 if (pos != null) {
-                  _mapController.move(LatLng(pos.latitude, pos.longitude), 15.0);
+                  ref.read(cameraIntentProvider.notifier).state = CameraRequest.animateTo(
+                    LatLng(pos.latitude, pos.longitude),
+                    zoom: 15.0,
+                  );
                 }
               },
               child: const Icon(Icons.my_location, color: Colors.black87),
@@ -739,46 +518,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ? AutoDetailsSheet(
                     auto: _selectedAuto!,
                     distance: _distanceToAuto,
-                    onClose: () => setState(() => _selectedAuto = null),
+                    onClose: () {
+                      setState(() => _selectedAuto = null);
+                      ref.read(selectedAutoProvider.notifier).state = null;
+                    },
                   )
                 : const SizedBox(),
           ),
         ],
       ],
     );
-  }
-
-  /// When a ride.requested event arrives, show a pulsing passenger marker
-  /// at the pickup location.
-  List<Marker> _buildIncomingRequestPulse() {
-    final event = ref.watch(incomingRideRequestProvider);
-    if (event == null) return [];
-    final lat = (event.payload['pickup_lat'] as num?)?.toDouble();
-    final lng = (event.payload['pickup_lng'] as num?)?.toDouble();
-    if (lat == null || lng == null) return [];
-    return [
-      Marker(
-        point: LatLng(lat, lng),
-        width: 56, height: 56,
-        child: TweenAnimationBuilder<double>(
-          tween: Tween(begin: 0.8, end: 1.2),
-          duration: const Duration(milliseconds: 700),
-          curve: Curves.easeInOut,
-          builder: (_, scale, child) => Transform.scale(
-            scale: scale,
-            child: child,
-          ),
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.blue.withValues(alpha: 0.5),
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.blue.shade800, width: 2),
-            ),
-            child: const Center(child: Text('🧍', style: TextStyle(fontSize: 26))),
-          ),
-        ),
-      ),
-    ];
   }
 
   // ── Passenger action bar ───────────────────────────────────────────────────
@@ -1366,8 +1115,8 @@ class _DiagnosticsSheetState extends ConsumerState<_DiagnosticsSheet> {
                     _diagRow('Build Timestamp', AppConfig.buildTimestamp),
                     _diagRow('Git Commit', AppConfig.gitCommit),
                     _diagRow('Realtime Mode', AppConfig.realtimeMode),
-                    _diagRow('CARTO Key', AppConfig.cartoBasemapApiKey.isNotEmpty ? 'Present ✅' : 'Missing ❌', 
-                        color: AppConfig.cartoBasemapApiKey.isNotEmpty ? Colors.green.shade700 : Colors.red),
+                    _diagRow('Map SDK', 'Google Maps Native', 
+                        color: Colors.green.shade700),
                   ],
                 ),
                 const SizedBox(height: 12),

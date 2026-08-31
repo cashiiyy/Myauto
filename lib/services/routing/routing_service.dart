@@ -1,6 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../config/app_config.dart';
 
 // ── Result model ──────────────────────────────────────────────────────────────
@@ -133,8 +133,8 @@ class ValhallaRoutingService implements RoutingService {
   }
 
   /// Decode a Google-format encoded polyline (precision 6, used by Valhalla).
-  List<LatLng> _decodePolyline(String encoded, {int precision = 6}) {
-    final factor = 1e6; // Valhalla uses precision 6
+  List<LatLng> _decodePolyline(String encoded) {
+    const factor = 1e6; // Valhalla uses precision 6
     final result = <LatLng>[];
     int index = 0;
     int lat = 0;

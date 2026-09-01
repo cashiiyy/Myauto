@@ -229,7 +229,7 @@ class BackendWebSocketClient extends ChangeNotifier {
   void _startHeartbeat() {
     _heartbeatTimer?.cancel();
     _heartbeatTimer = Timer.periodic(
-      Duration(seconds: AppConfig.wsHeartbeatIntervalSeconds),
+      const Duration(seconds: AppConfig.wsHeartbeatIntervalSeconds),
       (_) => sendPing(),
     );
   }

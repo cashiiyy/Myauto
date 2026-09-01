@@ -88,6 +88,7 @@ class _MyAutoGoogleMapState extends ConsumerState<MyAutoGoogleMap> {
       // Clear intent once consumed so it doesn't re-trigger
       if (mounted) {
         ref.read(cameraIntentProvider.notifier).state = null;
+        ref.read(mapPannedAwayProvider.notifier).state = false;
       }
     }
   }
@@ -139,6 +140,11 @@ class _MyAutoGoogleMapState extends ConsumerState<MyAutoGoogleMap> {
       ),
       onMapCreated: _onMapCreated,
       onCameraIdle: _onCameraIdle,
+      onCameraMoveStarted: () {
+        if (mounted) {
+          ref.read(mapPannedAwayProvider.notifier).state = true;
+        }
+      },
       onTap: (_) {
         if (widget.onTap != null) widget.onTap!();
       },

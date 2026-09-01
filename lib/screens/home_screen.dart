@@ -11,7 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../config/app_config.dart';
 import '../features/map/presentation/myauto_google_map.dart';
-import '../features/map/providers/map_controller_provider.dart';
+import '../features/map/presentation/widgets/map_controls_overlay.dart';
 import '../features/map/providers/map_provider.dart';
 import '../models/backend_event.dart';
 import '../models/auto_model.dart';
@@ -86,17 +86,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ) / 1000.0;
     }
     setState(() => _selectedAuto = auto);
-  }
-
-  void _reloadMap() {
-    ref.read(backendDriversProvider.notifier).refresh();
-    final pos = ref.read(currentLocationProvider).value;
-    if (pos != null) {
-      ref.read(cameraIntentProvider.notifier).state = CameraRequest.animateTo(
-        LatLng(pos.latitude, pos.longitude),
-        zoom: 15.0,
-      );
-    }
   }
 
   void _callSos() async {
@@ -391,9 +380,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 borderRadius: BorderRadius.circular(8),
                 boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
               ),
-              child: Row(
+              child: const Row(
                 mainAxisAlignment: MainAxisAlignment.center,
-                children: const [
+                children: [
                   SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
                   SizedBox(width: 8),
                   Text('Acquiring GPS location...'),
@@ -412,12 +401,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           ),
 
-        // ── FABs ──────────────────────────────────────────────────────────
+        // ── Controls & Actions ──────────────────────────────────────────
         if (_currentIndex == 0) ...[
 
           // ── Destination search bar (passengers only — additive) ─────────
-          // Positioned at top of map, above connection banner, below FABs.
-          // Hidden for drivers. Does not affect booking or ride logic.
           if (role == 'passenger') ...[
             Builder(builder: (ctx) {
               debugPrint('[Diagnostics] home_screen adding DestinationSearchBar to Stack. padding.top: ${MediaQuery.of(ctx).padding.top}');
@@ -469,69 +456,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
             ),
           ],
-          // Backend poll error indicator
-          if (ref.watch(backendDriversProvider).error != null)
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 14,
-              left: 60, right: 60,
-              child: const SizedBox(), // banner handles this
-            ),
 
-          Positioned(
-            // Shift down for passengers (search bar occupies ~62px at top)
-            top: MediaQuery.of(context).padding.top + (role == 'passenger' ? 72 : 20),
-            right: 20,
-            child: FloatingActionButton(
-              heroTag: 'refresh',
-              backgroundColor: const Color(0xFFFFDDBA).withValues(alpha: 0.9),
-              elevation: 4, mini: true,
-              onPressed: _reloadMap,
-              child: const Icon(Icons.refresh, color: Colors.black87),
-            ),
-          ),
-          Positioned(
-            top: MediaQuery.of(context).padding.top + (role == 'passenger' ? 122 : 70),
-            right: 20,
-            child: FloatingActionButton(
-              heroTag: 'locate',
-              backgroundColor: const Color(0xFFD0E4FF).withValues(alpha: 0.9),
-              elevation: 4, mini: true,
-              onPressed: () {
-                final pos = ref.read(currentLocationProvider).value;
-                if (pos != null) {
-                  ref.read(cameraIntentProvider.notifier).state = CameraRequest.animateTo(
-                    LatLng(pos.latitude, pos.longitude),
-                    zoom: 15.0,
-                  );
-                }
-              },
-              child: const Icon(Icons.my_location, color: Colors.black87),
-            ),
-          ),
-          Positioned(
-            top: MediaQuery.of(context).padding.top + (role == 'passenger' ? 172 : 120),
-            right: 20,
-            child: FloatingActionButton(
-              heroTag: 'diag',
-              backgroundColor: Colors.white.withValues(alpha: 0.95),
-              elevation: 4, mini: true,
-              onPressed: () => _showDiagnosticsSheet(role),
-              child: const Icon(Icons.analytics_outlined, color: Colors.blueAccent, size: 20),
-            ),
-          ),
-          Positioned(
-            bottom: _selectedAuto == null ? 120 : 350, left: 20,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeOutCubic,
-              child: FloatingActionButton(
-                heroTag: 'sos',
-                backgroundColor: const Color(0xFFFF4B4B),
-                elevation: 4, shape: const CircleBorder(),
-                onPressed: _callSos,
-                child: const Icon(Icons.call, color: Colors.white, size: 28),
-              ),
-            ),
+          // ── Premium Floating Map Controls System ────────────────────────
+          MapControlsOverlay(
+            role: role,
+            onOpenDiagnostics: () => _showDiagnosticsSheet(role),
+            onTriggerSos: _callSos,
+            isAutoDetailsOpen: _selectedAuto != null,
           ),
 
           // ── Book Ride + Share Ride (passengers) ───────────────────────

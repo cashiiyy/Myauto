@@ -72,3 +72,8 @@ class CameraRequest {
 /// Set by UI components (e.g. Locate-Me FAB, Refresh button, Route bounds calculation).
 /// Consumed and cleared exclusively by [MyAutoGoogleMap].
 final cameraIntentProvider = StateProvider<CameraRequest?>((ref) => null);
+
+/// Tracks whether the user has manually panned or dragged the map away from their location.
+/// When true, the dedicated Recenter button activates and slides into view.
+final mapPannedAwayProvider = StateProvider<bool>((ref) => false);
+

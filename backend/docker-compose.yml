@@ -136,6 +136,9 @@ services:
   valhalla:
     image: ghcr.io/valhalla/valhalla:latest
     container_name: myauto_valhalla
+    profiles:
+      - valhalla
+      - routing
     restart: unless-stopped
     ports:
       - "8002:8002"
@@ -144,6 +147,18 @@ services:
     environment:
       - use_tiles_ignore_pbf=True     # serve from pre-built tiles
       - tile_extract=/custom_files/valhalla_tiles.tar  # optional tar extract
+    # Entrypoint fallback: If tiles/config don't exist yet, stay idle and log guidance instead of exiting 0 in a restart loop
+    command: >
+      bash -c "
+        if [ ! -f /custom_files/valhalla.json ] && [ ! -f /custom_files/valhalla_tiles.tar ]; then
+          echo '[Valhalla] No pre-built tiles or config found in /custom_files.'
+          echo '[Valhalla] To build tiles, run: docker compose --profile valhalla run --rm valhalla valhalla_build_tiles ...'
+          echo '[Valhalla] Standing by. (Public Valhalla endpoint is active for development).'
+          tail -f /dev/null
+        else
+          /valhalla/scripts/run.sh
+        fi
+      "
     networks:
       - backend_net
     healthcheck:
@@ -153,18 +168,18 @@ services:
       retries: 3
       start_period: 60s
 
-  # ── Photon Geocoding ──────────────────────────────────────────────────────────
-  # Open-source geocoding based on OpenStreetMap data.
-  # Official image: komoot/photon  (NOT mediagis/photon)
   # ── Photon Geocoding (Optional Self-Hosted) ───────────────────────────────────
   # Open-source geocoding based on OpenStreetMap data.
-  # Community Docker Hub image: mediagis/photon:latest
+  # Community Docker Hub image: rtuszik/photon-docker:latest
   #
   # Note: Requires downloading a pre-built Photon database extract on first run.
-  # For development, you can use the free public endpoint: PHOTON_URL=https://photon.komoot.io
+  # For development, the free public endpoint is used: PHOTON_URL=https://photon.komoot.io
   photon:
     image: rtuszik/photon-docker:latest
     container_name: myauto_photon
+    profiles:
+      - photon
+      - geocoding
     restart: unless-stopped
     ports:
       - "2322:2322"

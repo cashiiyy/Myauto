@@ -202,59 +202,67 @@ class MarkerService {
     return markers;
   }
 
-  // ── Canvas-based crisp icon generation ─────────────────────────────────────
+  // ── Canvas-based crisp vector icon generation ──────────────────────────────
 
   Future<BitmapDescriptor> _createRickshawMarker({
     required Color badgeColor,
     required Color borderColor,
     required bool isSelected,
   }) async {
-    final size = isSelected ? 120.0 : 96.0;
+    final size = isSelected ? 128.0 : 104.0;
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, size, size));
 
     final center = Offset(size / 2, size / 2);
     final radius = (size / 2) - 8;
 
-    // Shadow
+    // 1. Soft drop shadow
     final shadowPaint = Paint()
-      ..color = Colors.black.withValues(alpha: 0.25)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
-    canvas.drawCircle(center + const Offset(0, 3), radius, shadowPaint);
+      ..color = Colors.black.withValues(alpha: isSelected ? 0.35 : 0.22)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, isSelected ? 8 : 5);
+    canvas.drawCircle(center + const Offset(0, 4), radius, shadowPaint);
 
-    // Background circle
+    // 2. Outer pulse / selection glow ring (if selected)
+    if (isSelected) {
+      final glowPaint = Paint()
+        ..color = badgeColor.withValues(alpha: 0.35)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 7.0;
+      canvas.drawCircle(center, radius + 3, glowPaint);
+    }
+
+    // 3. Base disc background (pure crisp white)
     final bgPaint = Paint()..color = Colors.white;
     canvas.drawCircle(center, radius, bgPaint);
 
-    // Inner tint circle
-    final tintPaint = Paint()..color = badgeColor.withValues(alpha: 0.22);
+    // 4. Inner subtle status tint
+    final tintPaint = Paint()..color = badgeColor.withValues(alpha: 0.12);
     canvas.drawCircle(center, radius - 2, tintPaint);
 
-    // Border
+    // 5. Outer border ring
     final borderPaint = Paint()
       ..color = borderColor
       ..style = PaintingStyle.stroke
-      ..strokeWidth = isSelected ? 5.0 : 3.5;
+      ..strokeWidth = isSelected ? 4.5 : 3.0;
     canvas.drawCircle(center, radius, borderPaint);
 
-    // Draw Emoji / Icon: 🛺
-    final textPainter = TextPainter(
-      text: TextSpan(
-        text: '🛺',
-        style: TextStyle(
-          fontSize: isSelected ? 48.0 : 38.0,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    );
-    textPainter.layout();
-    textPainter.paint(
-      canvas,
-      Offset(
-        center.dx - (textPainter.width / 2),
-        center.dy - (textPainter.height / 2),
-      ),
-    );
+    // 6. Vector Auto Rickshaw Drawing (Iconic Kerala Auto silhouette)
+    final scale = size / 104.0;
+    canvas.save();
+    canvas.translate(center.dx - (26 * scale), center.dy - (20 * scale));
+    canvas.scale(scale);
+
+    _drawVectorRickshaw(canvas, badgeColor);
+
+    canvas.restore();
+
+    // 7. Status badge indicator dot at top-right
+    final badgeCenter = Offset(center.dx + radius * 0.62, center.dy - radius * 0.62);
+    final badgeBg = Paint()..color = Colors.white;
+    canvas.drawCircle(badgeCenter, 8.5 * scale, badgeBg);
+
+    final statusDot = Paint()..color = badgeColor;
+    canvas.drawCircle(badgeCenter, 6.5 * scale, statusDot);
 
     final picture = recorder.endRecording();
     final image = await picture.toImage(size.toInt(), size.toInt());
@@ -262,35 +270,165 @@ class MarkerService {
     return BitmapDescriptor.bytes(byteData!.buffer.asUint8List());
   }
 
+  /// Draws a clean, recognizable Auto-Rickshaw vector shape.
+  void _drawVectorRickshaw(Canvas canvas, Color statusColor) {
+    // ── Ground shadow under tires ──
+    final groundShadow = Paint()
+      ..color = Colors.black.withValues(alpha: 0.18)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.5);
+    canvas.drawOval(const Rect.fromLTWH(2, 34, 48, 6), groundShadow);
+
+    // ── Rear Tire ──
+    final tirePaint = Paint()..color = const Color(0xFF1F2937);
+    canvas.drawCircle(const Offset(12, 32), 6.5, tirePaint);
+    final rimPaint = Paint()..color = const Color(0xFFE5E7EB);
+    canvas.drawCircle(const Offset(12, 32), 3.5, rimPaint);
+    final hubPaint = Paint()..color = const Color(0xFF4B5563);
+    canvas.drawCircle(const Offset(12, 32), 1.5, hubPaint);
+
+    // ── Front Tire ──
+    canvas.drawCircle(const Offset(42, 32), 6.5, tirePaint);
+    canvas.drawCircle(const Offset(42, 32), 3.5, rimPaint);
+    canvas.drawCircle(const Offset(42, 32), 1.5, hubPaint);
+
+    // ── Main Lower Chassis / Body (Kerala Auto Dark Green / Black) ──
+    final bodyPath = Path()
+      ..moveTo(4, 28)
+      ..lineTo(4, 20)
+      ..lineTo(14, 20)
+      ..lineTo(18, 16)
+      ..lineTo(38, 16)
+      ..lineTo(46, 22)
+      ..lineTo(48, 28)
+      ..lineTo(46, 30)
+      ..lineTo(6, 30)
+      ..close();
+
+    final bodyPaint = Paint()..color = const Color(0xFF0F766E); // Deep Kerala emerald/teal green
+    canvas.drawPath(bodyPath, bodyPaint);
+
+    // Chassis accent line (Yellow stripe)
+    final stripePaint = Paint()
+      ..color = const Color(0xFFFBBF24)
+      ..strokeWidth = 2.0
+      ..style = PaintingStyle.stroke;
+    canvas.drawLine(const Offset(6, 26), const Offset(46, 26), stripePaint);
+
+    // ── Canopy / Hood (Iconic Auto Yellow) ──
+    final canopyPath = Path()
+      ..moveTo(2, 18)
+      ..cubicTo(2, 10, 10, 4, 22, 4)
+      ..lineTo(34, 4)
+      ..cubicTo(40, 4, 44, 8, 45, 12)
+      ..lineTo(44, 15)
+      ..lineTo(2, 18)
+      ..close();
+
+    final canopyPaint = Paint()..color = const Color(0xFFF59E0B); // Vibrant rich auto yellow
+    canvas.drawPath(canopyPath, canopyPaint);
+
+    // Canopy highlight (gloss curve)
+    final canopyHighlight = Path()
+      ..moveTo(6, 12)
+      ..cubicTo(10, 7, 18, 6, 30, 6)
+      ..lineTo(38, 6);
+    final highlightPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.45)
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    canvas.drawPath(canopyHighlight, highlightPaint);
+
+    // Canopy rear trim (Black soft top curve)
+    final rearTrimPaint = Paint()
+      ..color = const Color(0xFF1F2937)
+      ..strokeWidth = 2.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(const Offset(2, 18), const Offset(4, 12), rearTrimPaint);
+
+    // ── Windshield (Sky Blue Glass with Reflection) ──
+    final windshieldPath = Path()
+      ..moveTo(34, 6)
+      ..lineTo(43, 14)
+      ..lineTo(39, 18)
+      ..lineTo(30, 18)
+      ..close();
+
+    final glassPaint = Paint()..color = const Color(0xFFBAE6FD);
+    canvas.drawPath(windshieldPath, glassPaint);
+
+    // Glass gloss reflection
+    final glassShine = Paint()
+      ..color = Colors.white.withValues(alpha: 0.7)
+      ..strokeWidth = 1.2
+      ..style = PaintingStyle.stroke;
+    canvas.drawLine(const Offset(35, 9), const Offset(39, 15), glassShine);
+
+    // ── Front Pillar / Handlebar Frame ──
+    final framePaint = Paint()
+      ..color = const Color(0xFF374151)
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke;
+    canvas.drawLine(const Offset(43, 14), const Offset(46, 26), framePaint);
+    canvas.drawLine(const Offset(30, 18), const Offset(28, 28), framePaint);
+
+    // ── Front Headlight (Warm Golden Beam) ──
+    final headlightPaint = Paint()..color = const Color(0xFFFEF08A);
+    canvas.drawCircle(const Offset(47, 24), 2.5, headlightPaint);
+    final headlightTrim = Paint()
+      ..color = const Color(0xFF4B5563)
+      ..strokeWidth = 1.0
+      ..style = PaintingStyle.stroke;
+    canvas.drawCircle(const Offset(47, 24), 2.5, headlightTrim);
+  }
+
   Future<BitmapDescriptor> _createDestinationPinMarker() async {
-    const width = 80.0;
-    const height = 96.0;
+    const width = 88.0;
+    const height = 104.0;
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, width, height));
 
-    final shadowPaint = Paint()
-      ..color = Colors.black.withValues(alpha: 0.28)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
-    canvas.drawCircle(const Offset(40, 38), 26, shadowPaint);
+    const center = Offset(44, 38);
 
-    final bgPaint = Paint()..color = const Color(0xFFEF4444);
-    canvas.drawCircle(const Offset(40, 38), 24, bgPaint);
+    // Ground shadow at tip
+    final tipShadow = Paint()
+      ..color = Colors.black.withValues(alpha: 0.3)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
+    canvas.drawOval(const Rect.fromLTWH(30, 92, 28, 8), tipShadow);
 
-    final strokePaint = Paint()
+    // Pin Body Path
+    final pinPath = Path()
+      ..moveTo(44, 98)
+      ..cubicTo(26, 70, 16, 52, 16, 38)
+      ..cubicTo(16, 22.5, 28.5, 10, 44, 10)
+      ..cubicTo(59.5, 10, 72, 22.5, 72, 38)
+      ..cubicTo(72, 52, 62, 70, 44, 98)
+      ..close();
+
+    // Red Gradient Fill
+    final pinPaint = Paint()
+      ..shader = ui.Gradient.linear(
+        const Offset(44, 10),
+        const Offset(44, 98),
+        [const Color(0xFFEF4444), const Color(0xFFDC2626)],
+      );
+    canvas.drawPath(pinPath, pinPaint);
+
+    // White outline
+    final outlinePaint = Paint()
       ..color = Colors.white
       ..style = PaintingStyle.stroke
       ..strokeWidth = 3.5;
-    canvas.drawCircle(const Offset(40, 38), 24, strokePaint);
+    canvas.drawPath(pinPath, outlinePaint);
 
-    final textPainter = TextPainter(
-      text: const TextSpan(
-        text: '📍',
-        style: TextStyle(fontSize: 34),
-      ),
-      textDirection: TextDirection.ltr,
-    );
-    textPainter.layout();
-    textPainter.paint(canvas, const Offset(23, 20));
+    // Inner White Disc
+    final innerDisc = Paint()..color = Colors.white;
+    canvas.drawCircle(center, 13.0, innerDisc);
+
+    // Inner Red Center Dot
+    final innerDot = Paint()..color = const Color(0xFFEF4444);
+    canvas.drawCircle(center, 7.5, innerDot);
 
     final picture = recorder.endRecording();
     final image = await picture.toImage(width.toInt(), height.toInt());
@@ -299,25 +437,43 @@ class MarkerService {
   }
 
   Future<BitmapDescriptor> _createUserLocationMarker() async {
-    const size = 64.0;
+    const size = 80.0;
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, size, size));
 
     const center = Offset(size / 2, size / 2);
 
-    // Outer halo
-    final haloPaint = Paint()..color = const Color(0xFF3B82F6).withValues(alpha: 0.25);
-    canvas.drawCircle(center, 28, haloPaint);
+    // 1. Soft pulsing radar halo
+    final haloPaint = Paint()..color = const Color(0xFF3B82F6).withValues(alpha: 0.22);
+    canvas.drawCircle(center, 34, haloPaint);
 
-    // White border ring
-    final borderPaint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.fill;
-    canvas.drawCircle(center, 14, borderPaint);
+    final middleRing = Paint()
+      ..color = const Color(0xFF60A5FA).withValues(alpha: 0.35)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+    canvas.drawCircle(center, 24, middleRing);
 
-    // Blue core dot
-    final corePaint = Paint()..color = const Color(0xFF2563EB);
-    canvas.drawCircle(center, 10, corePaint);
+    // 2. Crisp white border disc with shadow
+    final shadowPaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.2)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
+    canvas.drawCircle(center + const Offset(0, 2), 15, shadowPaint);
+
+    final borderPaint = Paint()..color = Colors.white;
+    canvas.drawCircle(center, 15, borderPaint);
+
+    // 3. Vibrant blue core dot
+    final corePaint = Paint()
+      ..shader = ui.Gradient.radial(
+        center,
+        11,
+        [const Color(0xFF3B82F6), const Color(0xFF1D4ED8)],
+      );
+    canvas.drawCircle(center, 11, corePaint);
+
+    // 4. Central pinpoint highlight
+    final shinePaint = Paint()..color = Colors.white.withValues(alpha: 0.85);
+    canvas.drawCircle(center - const Offset(3, 3), 2.5, shinePaint);
 
     final picture = recorder.endRecording();
     final image = await picture.toImage(size.toInt(), size.toInt());
@@ -326,33 +482,47 @@ class MarkerService {
   }
 
   Future<BitmapDescriptor> _createRideShareMarker() async {
-    const size = 80.0;
+    const size = 88.0;
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, size, size));
 
     const center = Offset(size / 2, size / 2);
 
+    // Shadow
+    final shadowPaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.25)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
+    canvas.drawCircle(center + const Offset(0, 3), 30, shadowPaint);
+
+    // Teal Base
     final bgPaint = Paint()..color = const Color(0xFF0D9488);
     canvas.drawCircle(center, 30, bgPaint);
 
     final borderPaint = Paint()
       ..color = Colors.white
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 3;
+      ..strokeWidth = 3.5;
     canvas.drawCircle(center, 30, borderPaint);
 
-    final textPainter = TextPainter(
-      text: const TextSpan(
-        text: '🤝',
-        style: TextStyle(fontSize: 28),
-      ),
-      textDirection: TextDirection.ltr,
-    );
-    textPainter.layout();
-    textPainter.paint(
-      canvas,
-      Offset(center.dx - (textPainter.width / 2), center.dy - (textPainter.height / 2)),
-    );
+    // Two-person sharing vector icon
+    final personPaint = Paint()..color = Colors.white;
+    // Left person
+    canvas.drawCircle(const Offset(37, 36), 4.5, personPaint);
+    final leftBody = Path()
+      ..moveTo(30, 50)
+      ..cubicTo(30, 44, 34, 43, 37, 43)
+      ..cubicTo(40, 43, 44, 44, 44, 50)
+      ..close();
+    canvas.drawPath(leftBody, personPaint);
+
+    // Right person
+    canvas.drawCircle(const Offset(51, 36), 4.5, personPaint);
+    final rightBody = Path()
+      ..moveTo(44, 50)
+      ..cubicTo(44, 44, 48, 43, 51, 43)
+      ..cubicTo(54, 43, 58, 44, 58, 50)
+      ..close();
+    canvas.drawPath(rightBody, personPaint);
 
     final picture = recorder.endRecording();
     final image = await picture.toImage(size.toInt(), size.toInt());
@@ -361,36 +531,33 @@ class MarkerService {
   }
 
   Future<BitmapDescriptor> _createIncomingRequestMarker() async {
-    const size = 88.0;
+    const size = 96.0;
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder, const Rect.fromLTWH(0, 0, size, size));
 
     const center = Offset(size / 2, size / 2);
 
-    final haloPaint = Paint()..color = Colors.blue.withValues(alpha: 0.35);
-    canvas.drawCircle(center, 38, haloPaint);
+    final haloPaint = Paint()..color = Colors.amber.withValues(alpha: 0.3);
+    canvas.drawCircle(center, 40, haloPaint);
 
-    final bgPaint = Paint()..color = const Color(0xFF1E40AF);
+    final bgPaint = Paint()..color = const Color(0xFFD97706);
     canvas.drawCircle(center, 28, bgPaint);
 
     final borderPaint = Paint()
       ..color = Colors.white
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 3;
+      ..strokeWidth = 3.5;
     canvas.drawCircle(center, 28, borderPaint);
 
-    final textPainter = TextPainter(
-      text: const TextSpan(
-        text: '🧍',
-        style: TextStyle(fontSize: 32),
-      ),
-      textDirection: TextDirection.ltr,
-    );
-    textPainter.layout();
-    textPainter.paint(
-      canvas,
-      Offset(center.dx - (textPainter.width / 2), center.dy - (textPainter.height / 2)),
-    );
+    // Person silhouette pickup icon
+    final iconPaint = Paint()..color = Colors.white;
+    canvas.drawCircle(const Offset(48, 40), 5.5, iconPaint);
+    final body = Path()
+      ..moveTo(39, 58)
+      ..cubicTo(39, 49, 43, 48, 48, 48)
+      ..cubicTo(53, 48, 57, 49, 57, 58)
+      ..close();
+    canvas.drawPath(body, iconPaint);
 
     final picture = recorder.endRecording();
     final image = await picture.toImage(size.toInt(), size.toInt());

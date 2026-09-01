@@ -297,7 +297,7 @@ class BackendApiClient {
     String? message,
   }) async {
     if (AppConfig.mockMode) {
-      return SosResult(
+      return const SosResult(
         sosEventId: 'mock-sos-id',
         acknowledged: true,
         message: 'Mock SOS acknowledged.',

@@ -181,6 +181,9 @@ class RideActionController extends StateNotifier<RideActionState> {
         passengerName: _name,
         idempotencyKey: idempotencyKey,
         correlationId: correlationId,
+      ).timeout(
+        const Duration(seconds: 25),
+        onTimeout: () => throw const BackendNetworkException('Ride booking timed out. Please try again.'),
       );
 
       if (result.isExpired) {

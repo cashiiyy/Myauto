@@ -164,13 +164,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         onAccept: () async {
           final ctrl = ref.read(rideActionControllerProvider.notifier);
           await ctrl.acceptMatch(matchId);
-          if (mounted) Navigator.of(ctx).pop();
+          if (ctx.mounted) Navigator.of(ctx).pop();
           ref.read(incomingRideRequestProvider.notifier).state = null;
         },
         onReject: () async {
           final ctrl = ref.read(rideActionControllerProvider.notifier);
           await ctrl.rejectMatch(matchId);
-          if (mounted) Navigator.of(ctx).pop();
+          if (ctx.mounted) Navigator.of(ctx).pop();
           ref.read(incomingRideRequestProvider.notifier).state = null;
         },
       ),
@@ -201,6 +201,39 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         _selectAuto(next, pos);
       } else {
         setState(() => _selectedAuto = null);
+      }
+    });
+
+    // Notify passenger when ride action status or message updates
+    ref.listen<RideActionState>(rideActionControllerProvider, (prev, next) {
+      if (next.message != null && next.message != prev?.message && mounted) {
+        final isErr = next.status == RideActionStatus.error;
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(
+                  isErr ? Icons.error_outline : Icons.info_outline,
+                  color: Colors.white,
+                  size: 20,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    next.message!,
+                    style: GoogleFonts.inter(fontWeight: FontWeight.w500),
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: isErr ? const Color(0xFFEF4444) : const Color(0xFF1E293B),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            duration: const Duration(seconds: 4),
+          ),
+        );
       }
     });
 

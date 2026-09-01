@@ -59,8 +59,11 @@ async def find_nearest_driver(
             # Check location hash fallback
             from app.redis.keys import RedisKeys
             loc_data = await redis.hgetall(RedisKeys.driver_location(driver_uid))
-            if loc_data and "lat" in loc_data and "lng" in loc_data:
-                pos = (float(loc_data["lng"]), float(loc_data["lat"]))
+            if loc_data and "latitude" in loc_data and "longitude" in loc_data:
+                try:
+                    pos = (float(loc_data["longitude"]), float(loc_data["latitude"]))
+                except (ValueError, TypeError):
+                    pos = None
 
         if not pos:
             logger.warning("Targeted driver %s has no valid GPS position", driver_uid)
@@ -125,6 +128,13 @@ async def find_nearest_driver(
                 continue
                 
             pos = await geo_get_position(redis, uid)
+            if not pos:
+                loc_data = await redis.hgetall(RedisKeys.driver_location(uid))
+                if loc_data and "latitude" in loc_data and "longitude" in loc_data:
+                    try:
+                        pos = (float(loc_data["longitude"]), float(loc_data["latitude"]))
+                    except (ValueError, TypeError):
+                        pos = None
             if not pos:
                 continue
             

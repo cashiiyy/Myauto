@@ -149,12 +149,19 @@ class BackendApiClient {
         'lng': lng,
         'radius_km': radiusKm,
       });
+      if (resp.data is! List) {
+        return const [];
+      }
       final list = resp.data as List<dynamic>;
       return list
-          .map((j) => NearbyDriverModel.fromJson(j as Map<String, dynamic>))
+          .whereType<Map<String, dynamic>>()
+          .map((j) => NearbyDriverModel.fromJson(j))
           .toList();
     } on DioException catch (e) {
       _handleDioException(e);
+    } catch (e) {
+      debugPrint('[ApiClient] getNearbyDrivers parse error: $e');
+      return const [];
     }
   }
 

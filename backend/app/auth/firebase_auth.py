@@ -57,7 +57,7 @@ def init_firebase() -> firebase_admin.App:
 
     settings = get_settings()
     auth_mode = getattr(settings, "firebase_auth_mode", "service_account").lower()
-    project_id = getattr(settings, "firebase_project_id", "myauto-493fc")
+    project_id = getattr(settings, "firebase_project_id", "myauto-dd21e")
 
     # Primary configured path
     primary_path_str = getattr(settings, "firebase_service_account_path", "/app/secrets/serviceAccountKey.json")
@@ -105,6 +105,18 @@ def init_firebase() -> firebase_admin.App:
             logger.critical(err_msg)
             raise RuntimeError(err_msg)
 
+        # ── Firebase Configuration Consistency Guard ─────────────────────────
+        cred_project_id = getattr(cred, "project_id", None)
+        if cred_project_id and cred_project_id != project_id:
+            err_msg = (
+                f"[FATAL AUTH CONFIG] Firebase project mismatch! "
+                f"Configured FIREBASE_PROJECT_ID '{project_id}' does not match "
+                f"loaded service account credential project_id '{cred_project_id}'. "
+                f"Aborting startup to prevent authentication failures."
+            )
+            logger.critical(err_msg)
+            raise RuntimeError(err_msg)
+
     elif auth_mode == "adc":
         try:
             cred = credentials.ApplicationDefault()
@@ -114,15 +126,21 @@ def init_firebase() -> firebase_admin.App:
             logger.critical(err_msg)
             raise RuntimeError(err_msg)
 
+    elif auth_mode == "public_keys":
+        cred = None
+        logger.info("[AUTH STARTUP] Using public keys verification mode for project: %s", project_id)
+
     try:
-        _firebase_app = firebase_admin.initialize_app(
-            cred,
-            {"projectId": project_id},
-        )
-        logger.info(
-            "[AUTH DIAG] Firebase Admin SDK initialised successfully for project: %s",
-            project_id,
-        )
+        init_options = {"projectId": project_id}
+        if cred is not None:
+            _firebase_app = firebase_admin.initialize_app(cred, init_options)
+        else:
+            _firebase_app = firebase_admin.initialize_app(options=init_options)
+
+        logger.info("[AUTH STARTUP] Firebase Admin SDK initialized: true")
+        logger.info("[AUTH STARTUP] Firebase project ID: %s", project_id)
+        if cred and hasattr(cred, "project_id") and cred.project_id:
+            logger.info("[AUTH STARTUP] Certificate project ID: %s", cred.project_id)
     except Exception as e:
         logger.error("[AUTH DIAG] Firebase initialize_app failed: %s", e)
         raise
@@ -262,7 +280,10 @@ async def get_current_user_ws(websocket: WebSocket) -> VerifiedToken:
     """
     WebSocket authentication helper.
     Reads the token from query param ?token=... or the Authorization header.
+    Never logs raw tokens or authorization headers.
     """
+    logger.info("[AUTH DIAG] WebSocket authentication started")
+
     # 1. Try query parameter
     token = websocket.query_params.get("token")
 
@@ -273,11 +294,15 @@ async def get_current_user_ws(websocket: WebSocket) -> VerifiedToken:
             token = auth_header[7:].strip()
 
     if not token:
-        logger.warning("[AUTH DIAG] ws_token_present=False")
-        await websocket.close(code=4001, reason="Missing authentication token")
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
+        logger.warning("[AUTH DIAG] WebSocket authentication failed: token_present=False")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authentication token",
+        )
 
-    return _verify_id_token(token)
+    verified = _verify_id_token(token)
+    logger.info("[AUTH DIAG] WebSocket authentication success: uid=%s", verified.uid)
+    return verified
 
 
 # ── Role-based guards ─────────────────────────────────────────────────────────

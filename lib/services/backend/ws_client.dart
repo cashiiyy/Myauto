@@ -140,7 +140,7 @@ class BackendWebSocketClient extends ChangeNotifier {
         ? 'ws://localhost:9999/ws?token=mock'
         : '${AppConfig.backendWsUrl}?token=${token ?? "mock"}';
 
-    debugPrint('[WsClient] Connecting to $wsUrl (attempt ${_reconnectAttempts + 1})');
+    debugPrint('[WsClient] Connecting to ${AppConfig.backendWsUrl} (attempt ${_reconnectAttempts + 1})');
 
     try {
       _channel = IOWebSocketChannel.connect(

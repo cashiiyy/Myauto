@@ -65,19 +65,20 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         user = await get_current_user_ws(websocket)
     except Exception as exc:
-        logger.warning("WebSocket auth failed: %s", exc)
+        logger.warning("[AUTH DIAG] WebSocket auth failed: %s", exc)
         try:
-            await websocket.accept()
-            await websocket.close(code=4001, reason="Auth failed")
+            await websocket.close(code=4001, reason="Invalid authentication token")
         except Exception:
             pass
         return
 
     uid = user.uid
+    logger.info("[AUTH DIAG] Authenticated user ID available: uid=%s", uid)
     settings = get_settings()
 
-    # ── Connection setup ──────────────────────────────────────────────────────
+    # ── Connection setup (accepts and registers connection) ───────────────────
     await manager.connect(websocket, uid)
+    logger.info("[AUTH DIAG] Connection registered: uid=%s", uid)
     redis_conn = await get_redis()
 
     conn_key = RedisKeys.ws_connection(uid)
@@ -91,8 +92,6 @@ async def websocket_endpoint(websocket: WebSocket):
     heartbeat_task = asyncio.create_task(
         _send_heartbeat_loop(websocket, uid, settings.ws_heartbeat_interval_seconds)
     )
-
-    logger.info("WebSocket connected: uid=%s", uid)
 
     # ── Message loop ──────────────────────────────────────────────────────────
     try:
@@ -189,12 +188,12 @@ async def websocket_endpoint(websocket: WebSocket):
                     create_error_event(f"Unknown message type: {msg_type!r}").to_json()
                 )
 
-    except WebSocketDisconnect:
-        logger.info("WebSocket disconnected: uid=%s", uid)
+    except WebSocketDisconnect as exc:
+        logger.info("[AUTH DIAG] WebSocket disconnected: uid=%s, code=%s", uid, getattr(exc, "code", "unknown"))
     except Exception as exc:
-        logger.error("WebSocket error for uid %s: %s", uid, exc)
+        logger.error("[AUTH DIAG] WebSocket error for uid %s: %s", uid, exc)
     finally:
         heartbeat_task.cancel()
         manager.disconnect(uid)
         await redis_conn.delete(conn_key)
-        logger.info("WebSocket cleanup complete: uid=%s", uid)
+        logger.info("[AUTH DIAG] Connection closed reason: session ended, uid=%s", uid)

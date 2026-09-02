@@ -3,18 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:my_auto/features/map/presentation/widgets/map_controls_overlay.dart';
-import 'package:my_auto/features/map/providers/map_controller_provider.dart';
 import 'package:my_auto/features/map/services/marker_service.dart';
 import 'package:my_auto/models/auto_model.dart';
 import 'package:my_auto/models/nearby_driver_model.dart';
 import 'package:my_auto/providers/backend_client_provider.dart';
 import 'package:my_auto/providers/backend_drivers_provider.dart';
-import 'package:my_auto/providers/destination_provider.dart';
 import 'package:my_auto/providers/location_provider.dart';
-import 'package:my_auto/providers/ride_action_provider.dart';
-import 'package:my_auto/providers/selected_driver_provider.dart';
 import 'package:my_auto/services/backend/api_client.dart';
 import 'package:my_auto/widgets/auto_details_sheet.dart';
 

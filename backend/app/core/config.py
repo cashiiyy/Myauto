@@ -50,8 +50,8 @@ class Settings(BaseSettings):
     # ── Firebase Admin SDK ────────────────────────────────────────────────────
     firebase_credentials_path: str = "/app/secrets/firebase-service-account.json"
     firebase_service_account_path: str = "secrets/serviceAccountKey.json"
-    firebase_project_id: str = "myauto-493fc"
-    firebase_auth_mode: str = "service_account"  # "service_account" or "adc"
+    firebase_project_id: str = "myauto-dd21e"
+    firebase_auth_mode: str = "service_account"  # "service_account", "public_keys", or "adc"
 
     # ── Redis (optional caching / presence) ───────────────────────────────────
     redis_url: str = "redis://redis:6379/0"

@@ -77,7 +77,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       # Firebase
       FIREBASE_SERVICE_ACCOUNT_PATH: /app/secrets/serviceAccountKey.json
-      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-myauto-493fc}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-myauto-dd21e}
       FIREBASE_AUTH_MODE: ${FIREBASE_AUTH_MODE:-service_account}
       # App
       APP_ENV: ${APP_ENV:-production}

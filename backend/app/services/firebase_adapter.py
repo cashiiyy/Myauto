@@ -31,31 +31,10 @@ def init_firebase_sdk() -> bool:
         return False
 
     try:
-        import firebase_admin
-        from firebase_admin import credentials
-
-        # Check credentials path
-        cred_path = settings.firebase_credentials_path
-        if not os.path.exists(cred_path):
-            cred_path = settings.firebase_service_account_path
-
-        if os.path.exists(cred_path):
-            cred = credentials.Certificate(cred_path)
-            firebase_admin.initialize_app(cred, {
-                "projectId": settings.firebase_project_id,
-            })
-            _firebase_initialized = True
-            logger.info("Firebase Admin SDK initialized with certificate: %s", cred_path)
-            return True
-
-        # Fallback to Application Default Credentials
-        firebase_admin.initialize_app(options={
-            "projectId": settings.firebase_project_id,
-        })
+        from app.auth.firebase_auth import init_firebase
+        init_firebase()
         _firebase_initialized = True
-        logger.info("Firebase Admin SDK initialized with Application Default Credentials.")
         return True
-
     except Exception as e:
         logger.warning("Firebase Admin SDK could not be initialized: %s", e)
         _firebase_initialized = False

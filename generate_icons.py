@@ -75,7 +75,6 @@ def make_icons():
         # Standard launcher
         std_icon = app_icon_1024.resize((size, size), Image.Resampling.LANCZOS)
         std_icon.save(os.path.join(dir_path, "ic_launcher.png"), "PNG")
-        std_icon.save(os.path.join(dir_path, "ic_launcher.webp"), "WEBP")
 
         # Round launcher
         round_mask = Image.new("L", (size, size), 0)
@@ -84,12 +83,10 @@ def make_icons():
         round_icon = Image.new("RGBA", (size, size), (0, 0, 0, 0))
         round_icon.paste(std_icon, (0, 0), round_mask)
         round_icon.save(os.path.join(dir_path, "ic_launcher_round.png"), "PNG")
-        round_icon.save(os.path.join(dir_path, "ic_launcher_round.webp"), "WEBP")
 
         # Adaptive foreground
         fore_scaled = adaptive_foreground_1024.resize((size, size), Image.Resampling.LANCZOS)
         fore_scaled.save(os.path.join(dir_path, "ic_launcher_foreground.png"), "PNG")
-        fore_scaled.save(os.path.join(dir_path, "ic_launcher_foreground.webp"), "WEBP")
         print(f"Generated Android {folder} icons ({size}x{size})")
 
     # iOS AppIcon.appiconset

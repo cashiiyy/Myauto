@@ -1,4 +1,3 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'activity_details_screen.dart';
@@ -94,78 +93,81 @@ class ActivityScreen extends StatelessWidget {
 
     return Container(
       margin: const EdgeInsets.only(bottom: 20),
-      child: ClipRRect(
+      child: Material(
+        color: isDark ? const Color(0xFF262626) : Colors.white,
         borderRadius: BorderRadius.circular(24),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        elevation: 2,
+        shadowColor: Colors.black.withValues(alpha: isDark ? 0.3 : 0.06),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(24),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => ActivityDetailsScreen(
+                  title: title,
+                  date: date,
+                  amount: amount,
+                  distance: distance,
+                  isCancelled: isCancelled,
+                ),
+              ),
+            );
+          },
           child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
             decoration: BoxDecoration(
-              color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.white.withValues(alpha: 0.7),
               borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: Colors.grey.withValues(alpha: 0.15), width: 1.5),
+              border: Border.all(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.1)
+                    : Colors.grey.withValues(alpha: 0.2),
+                width: 1.2,
+              ),
             ),
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(24),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ActivityDetailsScreen(
-                        title: title,
-                        date: date,
-                        amount: amount,
-                        distance: distance,
-                        isCancelled: isCancelled,
-                      )
-                    )
-                  );
-                },
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-                  child: Row(
+            child: Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: isCancelled
+                        ? Colors.red.withValues(alpha: 0.1)
+                        : Colors.amber.withValues(alpha: 0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: isCancelled
+                      ? Text(icon, style: const TextStyle(fontSize: 24))
+                      : Image.asset('assets/images/rickshaw (1).png',
+                          width: 28, height: 28),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Container(
-                        width: 48,
-                        height: 48,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: isCancelled ? Colors.red.withValues(alpha: 0.1) : Colors.amber.withValues(alpha: 0.2),
-                          shape: BoxShape.circle,
-                        ),
-                        child: isCancelled 
-                            ? Text(icon, style: const TextStyle(fontSize: 24))
-                            : Image.asset('assets/images/rickshaw (1).png', width: 28, height: 28),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              title,
-                              style: GoogleFonts.fustat(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              '$date · $amount · $distance',
-                              style: GoogleFonts.abel(
-                                fontSize: 15,
-                                color: isDark ? Colors.grey[400] : Colors.grey[600],
-                              ),
-                            ),
-                          ],
+                      Text(
+                        title,
+                        style: GoogleFonts.fustat(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
-                      Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey.withValues(alpha: 0.4)),
+                      const SizedBox(height: 6),
+                      Text(
+                        '$date · $amount · $distance',
+                        style: GoogleFonts.abel(
+                          fontSize: 15,
+                          color: isDark ? Colors.grey[400] : Colors.grey[600],
+                        ),
+                      ),
                     ],
                   ),
                 ),
-              ),
+                Icon(Icons.arrow_forward_ios,
+                    size: 16, color: Colors.grey.withValues(alpha: 0.4)),
+              ],
             ),
           ),
         ),

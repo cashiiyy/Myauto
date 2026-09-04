@@ -45,3 +45,9 @@ flutter:
   assets:
     - assets/images/
     - assets/map/
+    - assets/MysteryQuest-Regular.ttf
+
+  fonts:
+    - family: MysteryQuest
+      fonts:
+        - asset: assets/MysteryQuest-Regular.ttf

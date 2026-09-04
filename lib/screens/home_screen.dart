@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -235,7 +234,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             children: [_buildMapTab(), const ActivityScreen(), const ProfileScreen()],
           ),
           // ── Connection status banner ────────────────────────────────────
-          if (_currentIndex == 0) _buildConnectionBanner(),
+          if (_currentIndex == 0)
+            _ConnectionStatusBanner(
+              onOpenDiagnostics: () {
+                final user = ref.read(currentUserProvider).value;
+                _showDiagnosticsSheet(user?.role ?? 'passenger');
+              },
+            ),
           AnimatedPositioned(
             duration: const Duration(milliseconds: 300),
             curve: Curves.easeOutCubic,
@@ -248,27 +253,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  // ── Connection status banner (3px bar at top of map) ──────────────────────
-
-  Widget _buildConnectionBanner() {
-    final wsState = ref.watch(wsConnectionStateProvider);
-    return wsState.when(
-      loading: () => const SizedBox(),
-      error: (_, __) => _connectionBar(Colors.red),
-      data: (state) {
-        if (AppConfig.mockMode) return const SizedBox();
-        return switch (state) {
-          WsConnectionState.connected => const SizedBox(), // Green = no banner
-          WsConnectionState.connecting => _connectionBar(Colors.amber.shade600, label: 'Connecting…'),
-          WsConnectionState.reconnecting => _connectionBar(Colors.orange, label: 'Reconnecting…'),
-          WsConnectionState.disconnected => _connectionBar(Colors.red.shade400, label: 'Offline'),
-          WsConnectionState.authFailed => _connectionBar(Colors.red.shade700, label: 'Auth failed'),
-          WsConnectionState.error => _connectionBar(Colors.red, label: 'Connection error'),
-        };
-      },
-    );
-  }
-
   void _showDiagnosticsSheet(String role) {
     showModalBottomSheet(
       context: context,
@@ -277,48 +261,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       builder: (ctx) => _DiagnosticsSheet(
         role: role,
         driverService: _driverService,
-      ),
-    );
-  }
-
-  Widget _connectionBar(Color color, {String? label}) {
-    return Positioned(
-      top: MediaQuery.of(context).padding.top + 4,
-      left: 48,
-      right: 48,
-      child: GestureDetector(
-        onTap: () {
-          final user = ref.read(currentUserProvider).value;
-          _showDiagnosticsSheet(user?.role ?? 'passenger');
-        },
-        child: AnimatedOpacity(
-          opacity: 1.0,
-          duration: const Duration(milliseconds: 400),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.92),
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [BoxShadow(color: color.withValues(alpha: 0.3), blurRadius: 8)],
-            ),
-            child: label != null
-                ? Row(
-                    mainAxisSize: MainAxisSize.min,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const SizedBox(
-                        width: 10, height: 10,
-                        child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white),
-                      ),
-                      const SizedBox(width: 6),
-                      Text(label,
-                          style: GoogleFonts.inter(
-                              fontSize: 11, color: Colors.white, fontWeight: FontWeight.w600)),
-                    ],
-                  )
-                : const SizedBox(height: 3),
-          ),
-        ),
       ),
     );
   }
@@ -343,8 +285,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final role = (currentUser?.role ?? 'passenger').toLowerCase();
 
     final pos = locationAsync.value;
-    // Default to a fallback location if GPS is not yet available, so map renders.
-    final userLoc = pos != null ? LatLng(pos.latitude, pos.longitude) : const LatLng(8.5241, 76.9366); 
 
     return Stack(
       children: [
@@ -357,7 +297,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             }
           },
           child: MyAutoGoogleMap(
-            initialCenter: userLoc,
+            initialCenter: const LatLng(8.5241, 76.9366),
             initialZoom: 15.0,
             onTap: () {
               if (_selectedAuto != null) {
@@ -405,16 +345,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         if (_currentIndex == 0) ...[
 
           // ── Destination search bar (passengers only — additive) ─────────
-          if (role == 'passenger') ...[
-            Builder(builder: (ctx) {
-              debugPrint('[Diagnostics] home_screen adding DestinationSearchBar to Stack. padding.top: ${MediaQuery.of(ctx).padding.top}');
-              return Positioned(
-                top: MediaQuery.of(ctx).padding.top + 10,
-                left: 0, right: 0,
-                child: const DestinationSearchBar(),
-              );
-            }),
-          ] else ...[
+          if (role == 'passenger')
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 10,
+              left: 0, right: 0,
+              child: const DestinationSearchBar(),
+            )
+          else ...[
             Positioned(
               top: MediaQuery.of(context).padding.top + 16,
               left: 20,
@@ -469,7 +406,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           if (role == 'passenger')
             Positioned(
               bottom: _selectedAuto == null ? 120 : 360, right: 20,
-              child: _buildPassengerActionBar(ref.watch(rideActionControllerProvider)),
+              child: const _PassengerActionBar(),
             ),
 
           // ── Details sheet ─────────────────────────────────────────────
@@ -494,84 +431,39 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  // ── Passenger action bar ───────────────────────────────────────────────────
-
-  Widget _buildPassengerActionBar(RideActionState rideAction) {
-    final isLoading = rideAction.status == RideActionStatus.loading;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        FloatingActionButton.small(
-          heroTag: 'share_ride',
-          tooltip: rideAction.isSharing ? 'Disable Share' : 'Enable Share',
-          backgroundColor: rideAction.isSharing
-              ? Colors.teal
-              : Colors.white.withValues(alpha: 0.9),
-          onPressed: isLoading ? null : () async {
-            final ctrl = ref.read(rideActionControllerProvider.notifier);
-            rideAction.isSharing
-                ? await ctrl.disableRideShare()
-                : await ctrl.enableRideShare();
-          },
-          child: Text('🤝', style: TextStyle(fontSize: rideAction.isSharing ? 18 : 16)),
-        ),
-        const SizedBox(height: 8),
-        FloatingActionButton.extended(
-          heroTag: 'book_ride',
-          backgroundColor:
-              rideAction.isRequesting ? Colors.red.shade400 : const Color(0xFF007AFF),
-          elevation: 4,
-          onPressed: isLoading ? null : () async {
-            final ctrl = ref.read(rideActionControllerProvider.notifier);
-            rideAction.isRequesting ? await ctrl.cancelRide() : await ctrl.bookRide();
-          },
-          icon: isLoading
-              ? const SizedBox(
-                  width: 18, height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-              : Icon(rideAction.isRequesting ? Icons.close : Icons.hail, color: Colors.white),
-          label: Text(
-            rideAction.isRequesting ? 'Cancel' : 'Book Ride',
-            style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w600),
-          ),
-        ),
-      ],
-    );
-  }
-
   // ── Bottom navigation bar ──────────────────────────────────────────────────
 
   Widget _buildCustomBottomBar() {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(30),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-        child: Container(
-          height: 70,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-            color: Theme.of(context).brightness == Brightness.dark
-                ? Colors.black.withValues(alpha: 0.4)
-                : Colors.white.withValues(alpha: 0.6),
-            borderRadius: BorderRadius.circular(30),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.3), width: 1),
-            boxShadow: [
-              BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.1),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4))
-            ],
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildTabItem(0, 'Map', Icons.place),
-              _buildTabItem(1, 'Activity', Icons.notes),
-              _buildTabItem(2, 'Profile', Icons.person),
-            ],
-          ),
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      height: 70,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: isDark
+            ? const Color(0xFF1E293B).withValues(alpha: 0.95)
+            : Colors.white.withValues(alpha: 0.95),
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.12)
+              : Colors.black.withValues(alpha: 0.08),
+          width: 1.2,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.15),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _buildTabItem(0, 'Map', Icons.place),
+          _buildTabItem(1, 'Activity', Icons.notes),
+          _buildTabItem(2, 'Profile', Icons.person),
+        ],
       ),
     );
   }
@@ -688,12 +580,8 @@ class _RideRequestSheetState extends State<_RideRequestSheet> {
   @override
   Widget build(BuildContext context) {
     final hasCoords = widget.pickupLat != null && widget.pickupLng != null;
-    return ClipRRect(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
+    return Container(
+      padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
           decoration: BoxDecoration(
             color: Colors.white.withValues(alpha: 0.96),
             borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
@@ -872,9 +760,7 @@ class _RideRequestSheetState extends State<_RideRequestSheet> {
               ),
             ],
           ),
-        ),
-      ),
-    );
+        );
   }
 }
 
@@ -1261,4 +1147,141 @@ class _DiagnosticsSheetState extends ConsumerState<_DiagnosticsSheet> {
     );
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Isolated Connection Status Banner Widget
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _ConnectionStatusBanner extends ConsumerWidget {
+  final VoidCallback onOpenDiagnostics;
+  const _ConnectionStatusBanner({required this.onOpenDiagnostics});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final wsState = ref.watch(wsConnectionStateProvider);
+    return wsState.when(
+      loading: () => const SizedBox(),
+      error: (_, __) => _connectionBar(context, Colors.red),
+      data: (state) {
+        if (AppConfig.mockMode) return const SizedBox();
+        return switch (state) {
+          WsConnectionState.connected => const SizedBox(),
+          WsConnectionState.connecting =>
+            _connectionBar(context, Colors.amber.shade600, label: 'Connecting…'),
+          WsConnectionState.reconnecting =>
+            _connectionBar(context, Colors.orange, label: 'Reconnecting…'),
+          WsConnectionState.disconnected =>
+            _connectionBar(context, Colors.red.shade400, label: 'Offline'),
+          WsConnectionState.authFailed =>
+            _connectionBar(context, Colors.red.shade700, label: 'Auth failed'),
+          WsConnectionState.error =>
+            _connectionBar(context, Colors.red, label: 'Connection error'),
+        };
+      },
+    );
+  }
+
+  Widget _connectionBar(BuildContext context, Color color, {String? label}) {
+    return Positioned(
+      top: MediaQuery.of(context).padding.top + 4,
+      left: 48,
+      right: 48,
+      child: GestureDetector(
+        onTap: onOpenDiagnostics,
+        child: AnimatedOpacity(
+          opacity: 1.0,
+          duration: const Duration(milliseconds: 400),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.92),
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [BoxShadow(color: color.withValues(alpha: 0.3), blurRadius: 8)],
+            ),
+            child: label != null
+                ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const SizedBox(
+                        width: 10,
+                        height: 10,
+                        child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(label,
+                          style: GoogleFonts.inter(
+                              fontSize: 11, color: Colors.white, fontWeight: FontWeight.w600)),
+                    ],
+                  )
+                : const SizedBox(height: 3),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Isolated Passenger Action Bar Widget
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _PassengerActionBar extends ConsumerWidget {
+  const _PassengerActionBar();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final rideAction = ref.watch(rideActionControllerProvider);
+    final isLoading = rideAction.status == RideActionStatus.loading;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        FloatingActionButton.small(
+          heroTag: 'share_ride',
+          tooltip: rideAction.isSharing ? 'Disable Share' : 'Enable Share',
+          backgroundColor: rideAction.isSharing
+              ? Colors.teal
+              : Colors.white.withValues(alpha: 0.9),
+          onPressed: isLoading
+              ? null
+              : () async {
+                  final ctrl = ref.read(rideActionControllerProvider.notifier);
+                  rideAction.isSharing
+                      ? await ctrl.disableRideShare()
+                      : await ctrl.enableRideShare();
+                },
+          child: Text('🤝', style: TextStyle(fontSize: rideAction.isSharing ? 18 : 16)),
+        ),
+        const SizedBox(height: 8),
+        FloatingActionButton.extended(
+          heroTag: 'book_ride',
+          backgroundColor:
+              rideAction.isRequesting ? Colors.red.shade400 : const Color(0xFF007AFF),
+          elevation: 4,
+          onPressed: isLoading
+              ? null
+              : () async {
+                  final ctrl = ref.read(rideActionControllerProvider.notifier);
+                  rideAction.isRequesting
+                      ? await ctrl.cancelRide()
+                      : await ctrl.bookRide();
+                },
+          icon: isLoading
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                )
+              : Icon(rideAction.isRequesting ? Icons.close : Icons.hail, color: Colors.white),
+          label: Text(
+            rideAction.isRequesting ? 'Cancel' : 'Book Ride',
+            style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w600),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 

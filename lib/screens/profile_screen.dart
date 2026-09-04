@@ -1,4 +1,3 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -180,45 +179,48 @@ class ProfileScreen extends ConsumerWidget {
     
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
-      child: ClipRRect(
+      child: Material(
+        color: isDark ? const Color(0xFF262626) : Colors.white,
         borderRadius: BorderRadius.circular(24),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: Material(
-            color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.white.withValues(alpha: 0.7),
-            child: InkWell(
-              onTap: onTap,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: Colors.grey.withValues(alpha: 0.2), width: 1.5),
-                ),
-                child: Row(
-                  children: [
-                    ColorFiltered(
-                      colorFilter: isDark 
-                          ? const ColorFilter.matrix([
-                              -1, 0, 0, 0, 255, 
-                              0, -1, 0, 0, 255, 
-                              0, 0, -1, 0, 255, 
-                              0, 0, 0, 1, 0]) // simple invert for dark mode
-                          : const ColorFilter.mode(Colors.black, BlendMode.dstIn),
-                      child: Image.asset(imagePath, width: 28, height: 28,
-                        errorBuilder: (context, error, stackTrace) => const Icon(Icons.image, size: 28),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Text(
-                      label,
-                      style: GoogleFonts.fustat(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
+        elevation: 2,
+        shadowColor: Colors.black.withValues(alpha: isDark ? 0.3 : 0.06),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(24),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.1)
+                    : Colors.grey.withValues(alpha: 0.2),
+                width: 1.2,
               ),
+            ),
+            child: Row(
+              children: [
+                ColorFiltered(
+                  colorFilter: isDark 
+                      ? const ColorFilter.matrix([
+                          -1, 0, 0, 0, 255, 
+                          0, -1, 0, 0, 255, 
+                          0, 0, -1, 0, 255, 
+                          0, 0, 0, 1, 0]) // simple invert for dark mode
+                      : const ColorFilter.mode(Colors.black, BlendMode.dstIn),
+                  child: Image.asset(imagePath, width: 28, height: 28,
+                    errorBuilder: (context, error, stackTrace) => const Icon(Icons.image, size: 28),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Text(
+                  label,
+                  style: GoogleFonts.fustat(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
